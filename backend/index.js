@@ -13,6 +13,7 @@ const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
 const path = require('path');
+const cors = require('cors');
 
 // Configurez Cloudinary
 cloudinary.config({
@@ -37,6 +38,9 @@ const Message = require('./models/Message');
 // Crée une instance de l'application Express
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Middleware CORS
+app.use(cors()); // 
 
 // Configurez le transporteur d'e-mail
 const transporter = nodemailer.createTransport({
