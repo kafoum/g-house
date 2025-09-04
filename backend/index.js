@@ -242,7 +242,6 @@ mongoose.connect(process.env.MONGO_URI, {
  * description: Accès refusé.
  * 404:
  * description: Annonce non trouvée.
- *
  * delete:
  * summary: Supprime une annonce spécifique
  * tags: [Housing]
@@ -558,7 +557,6 @@ mongoose.connect(process.env.MONGO_URI, {
  * items:
  * type: string
  */
-
 // Route pour l'inscription d'un nouvel utilisateur
 app.post('/api/register', async (req, res) => {
     try {
