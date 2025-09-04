@@ -1,0 +1,39 @@
+###
+# Inscription d'un nouvel utilisateur locataire
+POST http://localhost:5000/api/register
+Content-Type: application/json
+
+{
+  "name": "Utilisateur Locataire",
+  "email": "locataire@example.com",
+  "password": "motdepasse1234",
+  "role": "tenant"
+}
+
+###
+# Connexion de l'utilisateur locataire
+POST http://localhost:5000/api/login
+Content-Type: application/json
+
+{
+  "email": "locataire@example.com",
+  "password": "motdepasse1234"
+}
+
+###
+# Faire une demande de réservation (protégé)
+POST http://localhost:5000/api/tenant/bookings
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4YjlhMjkyODlkOGYwNDcxMTM2MjhhNSIsInJvbGUiOiJ0ZW5hbnQiLCJpYXQiOjE3NTY5OTYzMzcsImV4cCI6MTc1NzAwNzEzN30.lBRIdjyk4YpC_RAR54mrlt8b_nj48QKbURSIIUkvDqo
+
+{
+  "housingId": "68b99b578e3e2c28196ac84e",
+  "startDate": "2025-09-10T00:00:00.000Z",
+  "endDate": "2025-09-17T00:00:00.000Z"
+}
+###
+# Récupérer les réservations d'un locataire
+GET http://localhost:5000/api/tenant/bookings
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4YjlhMjkyODlkOGYwNDcxMTM2MjhhNSIsInJvbGUiOiJ0ZW5hbnQiLCJpYXQiOjE3NTY5OTYzMzcsImV4cCI6MTc1NzAwNzEzN30.lBRIdjyk4YpC_RAR54mrlt8b_nj48QKbURSIIUkvDqo
+
+http://localhost:5000/api-docs.
