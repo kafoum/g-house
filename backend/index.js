@@ -6,10 +6,10 @@ const authMiddleware = require('./middleware/auth');
 const jwt = require('jsonwebtoken');
 const express = require('express');
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs'); 
-const nodemailer = require('nodemailer'); 
+const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
 const cloudinary = require('cloudinary').v2;
-const multer = require('multer');           
+const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
 
@@ -32,6 +32,7 @@ const ProfileDoc = require('./models/ProfileDoc');
 const Notification = require('./models/Notification');
 const Conversation = require('./models/Conversation');
 const Message = require('./models/Message');
+const path = require('path');
 
 // Crée une instance de l'application Express
 const app = express();
