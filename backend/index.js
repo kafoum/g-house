@@ -12,6 +12,7 @@ const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
+const path = require('path');
 
 // Configurez Cloudinary
 cloudinary.config({
@@ -24,7 +25,7 @@ cloudinary.config({
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-// Importe les modèles que l'on vient de créer
+// Importe les modèles
 const User = require('./models/User');
 const Housing = require('./models/Housing');
 const Booking = require('./models/Booking');
@@ -32,7 +33,6 @@ const ProfileDoc = require('./models/ProfileDoc');
 const Notification = require('./models/Notification');
 const Conversation = require('./models/Conversation');
 const Message = require('./models/Message');
-const path = require('path');
 
 // Crée une instance de l'application Express
 const app = express();
@@ -65,8 +65,19 @@ mongoose.connect(process.env.MONGO_URI, {
 /**
  * @swagger
  * tags:
- * name: Users
+ * - name: Users
  * description: Gestion des utilisateurs (inscription, connexion)
+ * - name: Housing
+ * description: Gestion des annonces de logement
+ * - name: Bookings
+ * description: Gestion des réservations
+ * - name: Profile
+ * description: Gestion du profil utilisateur et documents
+ * - name: Notifications
+ * description: Gestion des notifications
+ * - name: Messages
+ * description: Gestion de la messagerie
+ *
  * /api/register:
  * post:
  * summary: Inscrit un nouvel utilisateur
@@ -94,30 +105,7 @@ mongoose.connect(process.env.MONGO_URI, {
  * description: Erreur de validation ou email déjà utilisé.
  * 500:
  * description: Erreur serveur.
- */
-app.post('/api/register', async (req, res) => {
-    try {
-        const { name, email, password, role } = req.body;
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(400).json({ message: 'Cet email est déjà utilisé.' });
-        }
-        const newUser = new User({
-            name,
-            email,
-            password,
-            role
-        });
-        await newUser.save();
-        res.status(201).json({ message: 'Utilisateur créé avec succès !' });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de l\'inscription.' });
-    }
-});
-
-/**
- * @swagger
+ *
  * /api/login:
  * post:
  * summary: Connecte un utilisateur existant
@@ -142,7 +130,454 @@ app.post('/api/register', async (req, res) => {
  * description: Email ou mot de passe incorrect.
  * 500:
  * description: Erreur serveur.
+ *
+ * /api/housing:
+ * get:
+ * summary: Récupère la liste de tous les logements avec filtres
+ * tags: [Housing]
+ * parameters:
+ * - in: query
+ * name: city
+ * schema:
+ * type: string
+ * description: Filtrer par ville.
+ * - in: query
+ * name: price_min
+ * schema:
+ * type: number
+ * description: Filtrer par prix minimum.
+ * - in: query
+ * name: price_max
+ * schema:
+ * type: number
+ * description: Filtrer par prix maximum.
+ * - in: query
+ * name: type
+ * schema:
+ * type: string
+ * enum: [apartment, house, studio]
+ * description: Filtrer par type de logement.
+ * responses:
+ * 200:
+ * description: Une liste d'annonces de logement.
+ * 500:
+ * description: Erreur serveur.
+ * post:
+ * summary: Crée une nouvelle annonce de logement
+ * tags: [Housing]
+ * security:
+ * - bearerAuth: []
+ * requestBody:
+ * required: true
+ * content:
+ * application/json:
+ * schema:
+ * $ref: '#/components/schemas/Housing'
+ * responses:
+ * 201:
+ * description: Annonce créée avec succès.
+ * 403:
+ * description: Accès refusé, seul un propriétaire peut créer une annonce.
+ * 500:
+ * description: Erreur serveur.
+ *
+ * /api/housing/{id}:
+ * get:
+ * summary: Récupère les détails d'une annonce spécifique
+ * tags: [Housing]
+ * parameters:
+ * - in: path
+ * name: id
+ * required: true
+ * schema:
+ * type: string
+ * description: L'ID de l'annonce de logement.
+ * responses:
+ * 200:
+ * description: Détails de l'annonce.
+ * 404:
+ * description: Annonce non trouvée.
+ * 500:
+ * description: Erreur serveur.
+ *
+ * /api/landlord/housing:
+ * get:
+ * summary: Récupère toutes les annonces du propriétaire connecté
+ * tags: [Housing]
+ * security:
+ * - bearerAuth: []
+ * responses:
+ * 200:
+ * description: Liste des annonces du propriétaire.
+ * 403:
+ * description: Accès refusé, l'utilisateur n'est pas un propriétaire.
+ *
+ * /api/landlord/housing/{id}:
+ * put:
+ * summary: Met à jour une annonce spécifique
+ * tags: [Housing]
+ * security:
+ * - bearerAuth: []
+ * parameters:
+ * - in: path
+ * name: id
+ * required: true
+ * schema:
+ * type: string
+ * description: L'ID de l'annonce
+ * requestBody:
+ * required: true
+ * content:
+ * application/json:
+ * schema:
+ * $ref: '#/components/schemas/HousingUpdate'
+ * responses:
+ * 200:
+ * description: Annonce mise à jour avec succès.
+ * 403:
+ * description: Accès refusé.
+ * 404:
+ * description: Annonce non trouvée.
+ *
+ * delete:
+ * summary: Supprime une annonce spécifique
+ * tags: [Housing]
+ * security:
+ * - bearerAuth: []
+ * parameters:
+ * - in: path
+ * name: id
+ * required: true
+ * schema:
+ * type: string
+ * description: L'ID de l'annonce
+ * responses:
+ * 200:
+ * description: Annonce supprimée avec succès.
+ * 403:
+ * description: Accès refusé.
+ * 404:
+ * description: Annonce non trouvée.
+ *
+ * /api/profile/documents:
+ * post:
+ * summary: Ajoute un document au profil du locataire
+ * tags: [Profile]
+ * security:
+ * - bearerAuth: []
+ * requestBody:
+ * required: true
+ * content:
+ * application/json:
+ * schema:
+ * type: object
+ * properties:
+ * docType:
+ * type: string
+ * docUrl:
+ * type: string
+ * responses:
+ * 201:
+ * description: Document ajouté avec succès.
+ * 403:
+ * description: Accès refusé.
+ *
+ * /api/landlord/dashboard:
+ * get:
+ * summary: Récupère les données du tableau de bord d'un propriétaire
+ * tags: [Profile]
+ * security:
+ * - bearerAuth: []
+ * responses:
+ * 200:
+ * description: Données du tableau de bord.
+ * 403:
+ * description: Accès refusé.
+ *
+ * /api/tenant/bookings:
+ * get:
+ * summary: Récupère toutes les réservations d'un locataire
+ * tags: [Bookings]
+ * security:
+ * - bearerAuth: []
+ * responses:
+ * 200:
+ * description: Liste des réservations du locataire.
+ * 403:
+ * description: Accès refusé.
+ * post:
+ * summary: Crée une nouvelle demande de réservation
+ * tags: [Bookings]
+ * security:
+ * - bearerAuth: []
+ * requestBody:
+ * required: true
+ * content:
+ * application/json:
+ * schema:
+ * type: object
+ * properties:
+ * housingId:
+ * type: string
+ * startDate:
+ * type: string
+ * format: date
+ * endDate:
+ * type: string
+ * format: date
+ * responses:
+ * 201:
+ * description: Demande de réservation envoyée avec succès.
+ * 403:
+ * description: Accès refusé.
+ * 409:
+ * description: Le logement est déjà réservé pour cette période.
+ *
+ * /api/landlord/bookings:
+ * get:
+ * summary: Récupère toutes les réservations des logements d'un propriétaire
+ * tags: [Bookings]
+ * security:
+ * - bearerAuth: []
+ * responses:
+ * 200:
+ * description: Liste des réservations des logements du propriétaire.
+ * 403:
+ * description: Accès refusé.
+ *
+ * /api/landlord/bookings/{id}:
+ * put:
+ * summary: Met à jour le statut d'une réservation (acceptée, refusée)
+ * tags: [Bookings]
+ * security:
+ * - bearerAuth: []
+ * parameters:
+ * - in: path
+ * name: id
+ * required: true
+ * schema:
+ * type: string
+ * requestBody:
+ * required: true
+ * content:
+ * application/json:
+ * schema:
+ * type: object
+ * properties:
+ * status:
+ * type: string
+ * enum: [accepted, refused]
+ * responses:
+ * 200:
+ * description: Statut de la réservation mis à jour.
+ * 403:
+ * description: Accès refusé.
+ * 404:
+ * description: Réservation non trouvée.
+ *
+ * /api/landlord/tenants/{tenantId}/documents:
+ * get:
+ * summary: Récupère les documents d'un locataire
+ * tags: [Profile]
+ * security:
+ * - bearerAuth: []
+ * parameters:
+ * - in: path
+ * name: tenantId
+ * required: true
+ * schema:
+ * type: string
+ * responses:
+ * 200:
+ * description: Liste des documents du locataire.
+ * 403:
+ * description: Accès refusé.
+ *
+ * /api/notifications:
+ * get:
+ * summary: Récupère toutes les notifications de l'utilisateur
+ * tags: [Notifications]
+ * security:
+ * - bearerAuth: []
+ * responses:
+ * 200:
+ * description: Liste des notifications.
+ *
+ * /api/notifications/{id}/read:
+ * put:
+ * summary: Marque une notification comme lue
+ * tags: [Notifications]
+ * security:
+ * - bearerAuth: []
+ * parameters:
+ * - in: path
+ * name: id
+ * required: true
+ * schema:
+ * type: string
+ * responses:
+ * 200:
+ * description: Notification marquée comme lue.
+ * 404:
+ * description: Notification non trouvée.
+ *
+ * /api/upload/documents:
+ * post:
+ * summary: Télécharge un document sur Cloudinary
+ * tags: [Profile]
+ * security:
+ * - bearerAuth: []
+ * requestBody:
+ * required: true
+ * content:
+ * multipart/form-data:
+ * schema:
+ * type: object
+ * properties:
+ * document:
+ * type: string
+ * format: binary
+ * responses:
+ * 200:
+ * description: Document téléversé avec succès.
+ * 400:
+ * description: Aucun fichier fourni.
+ *
+ * /api/messages:
+ * post:
+ * summary: Envoie un nouveau message ou démarre une conversation
+ * tags: [Messages]
+ * security:
+ * - bearerAuth: []
+ * requestBody:
+ * required: true
+ * content:
+ * application/json:
+ * schema:
+ * type: object
+ * properties:
+ * recipientId:
+ * type: string
+ * housingId:
+ * type: string
+ * content:
+ * type: string
+ * responses:
+ * 201:
+ * description: Message envoyé avec succès.
+ *
+ * /api/conversations:
+ * get:
+ * summary: Récupère toutes les conversations de l'utilisateur
+ * tags: [Messages]
+ * security:
+ * - bearerAuth: []
+ * responses:
+ * 200:
+ * description: Liste des conversations.
+ *
+ * /api/conversations/{id}/messages:
+ * get:
+ * summary: Récupère tous les messages d'une conversation
+ * tags: [Messages]
+ * security:
+ * - bearerAuth: []
+ * parameters:
+ * - in: path
+ * name: id
+ * required: true
+ * schema:
+ * type: string
+ * responses:
+ * 200:
+ * description: Liste des messages.
+ *
+ * components:
+ * securitySchemes:
+ * bearerAuth:
+ * type: http
+ * scheme: bearer
+ * bearerFormat: JWT
+ * schemas:
+ * Housing:
+ * type: object
+ * properties:
+ * title:
+ * type: string
+ * description:
+ * type: string
+ * price:
+ * type: number
+ * location:
+ * type: object
+ * properties:
+ * city:
+ * type: string
+ * address:
+ * type: string
+ * type:
+ * type: string
+ * enum: [apartment, house, studio]
+ * amenities:
+ * type: array
+ * items:
+ * type: string
+ * images:
+ * type: array
+ * items:
+ * type: string
+ * HousingUpdate:
+ * type: object
+ * properties:
+ * title:
+ * type: string
+ * description:
+ * type: string
+ * price:
+ * type: number
+ * location:
+ * type: object
+ * properties:
+ * city:
+ * type: string
+ * address:
+ * type: string
+ * type:
+ * type: string
+ * enum: [apartment, house, studio]
+ * amenities:
+ * type: array
+ * items:
+ * type: string
+ * images:
+ * type: array
+ * items:
+ * type: string
  */
+
+// Route pour l'inscription d'un nouvel utilisateur
+app.post('/api/register', async (req, res) => {
+    try {
+        const { name, email, password, role } = req.body;
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(400).json({ message: 'Cet email est déjà utilisé.' });
+        }
+        const newUser = new User({
+            name,
+            email,
+            password,
+            role
+        });
+        await newUser.save();
+        res.status(201).json({ message: 'Utilisateur créé avec succès !' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Une erreur est survenue lors de l\'inscription.' });
+    }
+});
+
+// Route pour la connexion d'un utilisateur existant
 app.post('/api/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -175,43 +610,7 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-/**
- * @swagger
- * tags:
- * name: Housing
- * description: Gestion des annonces de logement
- * /api/housing:
- * get:
- * summary: Récupère la liste de tous les logements avec filtres
- * tags: [Housing]
- * parameters:
- * - in: query
- * name: city
- * schema:
- * type: string
- * description: Filtrer par ville.
- * - in: query
- * name: price_min
- * schema:
- * type: number
- * description: Filtrer par prix minimum.
- * - in: query
- * name: price_max
- * schema:
- * type: number
- * description: Filtrer par prix maximum.
- * - in: query
- * name: type
- * schema:
- * type: string
- * enum: [apartment, house, studio]
- * description: Filtrer par type de logement.
- * responses:
- * 200:
- * description: Une liste d'annonces de logement.
- * 500:
- * description: Erreur serveur.
- */
+// Route pour récupérer tous les logements
 app.get('/api/housing', async (req, res) => {
     try {
         const query = {};
@@ -238,43 +637,8 @@ app.get('/api/housing', async (req, res) => {
     }
 });
 
-/**
- * @swagger
- * /api/housing/{id}:
- * get:
- * summary: Récupère les détails d'une annonce spécifique
- * tags: [Housing]
- * parameters:
- * - in: path
- * name: id
- * required: true
- * schema:
- * type: string
- * description: L'ID de l'annonce de logement.
- * responses:
- * 200:
- * description: Détails de l'annonce.
- * 404:
- * description: Annonce non trouvée.
- * 500:
- * description: Erreur serveur.
- */
-app.get('/api/housing/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const housing = await Housing.findById(id).populate('landlord', 'name email');
-        if (!housing) {
-            return res.status(404).json({ message: 'Annonce non trouvée.' });
-        }
-        res.status(200).json({ housing });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération de l\'annonce.' });
-    }
-});
-
 // Route protégée pour la création d'une annonce
-app.post('/api/landlord/housing', authMiddleware, async (req, res) => {
+app.post('/api/housing', authMiddleware, async (req, res) => {
     try {
         const { title, description, price, location, type, amenities, images } = req.body;
         if (req.userData.userRole !== 'landlord') {
@@ -295,6 +659,105 @@ app.post('/api/landlord/housing', authMiddleware, async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Une erreur est survenue lors de la création de l\'annonce.' });
+    }
+});
+
+// Route pour récupérer les détails d'une annonce spécifique
+app.get('/api/housing/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const housing = await Housing.findById(id).populate('landlord', 'name email');
+        if (!housing) {
+            return res.status(404).json({ message: 'Annonce non trouvée.' });
+        }
+        res.status(200).json({ housing });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération de l\'annonce.' });
+    }
+});
+
+// Route protégée pour le tableau de bord propriétaire
+app.get('/api/landlord/dashboard', authMiddleware, async (req, res) => {
+    try {
+        if (req.userData.userRole !== 'landlord') {
+            return res.status(403).json({ message: 'Accès refusé. Seuls les propriétaires ont accès à leur tableau de bord.' });
+        }
+        const housingList = await Housing.find({ landlord: req.userData.userId });
+        const dashboardData = await Promise.all(
+            housingList.map(async (housing) => {
+                const pendingBookings = await Booking.find({
+                    housing: housing._id,
+                    status: 'pending'
+                }).populate('tenant', 'name');
+                return {
+                    ...housing.toObject(),
+                    pendingBookings: pendingBookings
+                };
+            })
+        );
+        res.status(200).json({ dashboard: dashboardData });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des données du tableau de bord.' });
+    }
+});
+
+// Route protégée pour qu'un propriétaire puisse voir ses propres annonces
+app.get('/api/landlord/housing', authMiddleware, async (req, res) => {
+    try {
+        if (req.userData.userRole !== 'landlord') {
+            return res.status(403).json({ message: 'Accès refusé. Seuls les propriétaires peuvent voir leurs annonces.' });
+        }
+        const housingList = await Housing.find({ landlord: req.userData.userId });
+        res.status(200).json({ housing: housingList });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des annonces.' });
+    }
+});
+
+// Route protégée pour qu'un propriétaire puisse mettre à jour une annonce
+app.put('/api/landlord/housing/:id', authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updates = req.body;
+        if (req.userData.userRole !== 'landlord') {
+            return res.status(403).json({ message: 'Accès refusé. Seuls les propriétaires peuvent modifier leurs annonces.' });
+        }
+        const housing = await Housing.findOne({ _id: id, landlord: req.userData.userId });
+        if (!housing) {
+            return res.status(404).json({ message: 'Annonce non trouvée ou vous n\'êtes pas le propriétaire.' });
+        }
+        const updatedHousing = await Housing.findByIdAndUpdate(id, updates, { new: true, runValidators: true });
+        res.status(200).json({
+            message: 'Annonce mise à jour avec succès !',
+            housing: updatedHousing
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Une erreur est survenue lors de la mise à jour de l\'annonce.' });
+    }
+});
+
+// Route protégée pour supprimer une annonce
+app.delete('/api/landlord/housing/:id', authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (req.userData.userRole !== 'landlord') {
+            return res.status(403).json({ message: 'Accès refusé. Seuls les propriétaires peuvent supprimer des annonces.' });
+        }
+        const deletedHousing = await Housing.findOneAndDelete({ _id: id, landlord: req.userData.userId });
+        if (!deletedHousing) {
+            return res.status(404).json({ message: 'Annonce non trouvée ou vous n\'êtes pas le propriétaire.' });
+        }
+        res.status(200).json({
+            message: 'Annonce supprimée avec succès !',
+            housing: deletedHousing
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Une erreur est survenue lors de la suppression de l\'annonce.' });
     }
 });
 
@@ -354,69 +817,6 @@ app.get('/api/tenant/bookings', authMiddleware, async (req, res) => {
     }
 });
 
-// Route protégée pour qu'un locataire puisse ajouter un document
-app.post('/api/profile/documents', authMiddleware, async (req, res) => {
-    try {
-        const { docType, docUrl } = req.body;
-        if (req.userData.userRole !== 'tenant') {
-            return res.status(403).json({ message: 'Accès refusé. Seuls les locataires peuvent ajouter des documents à leur profil.' });
-        }
-        const newDoc = new ProfileDoc({
-            user: req.userData.userId,
-            docType,
-            docUrl
-        });
-        await newDoc.save();
-        res.status(201).json({
-            message: 'Document ajouté avec succès !',
-            document: newDoc
-        });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de l\'ajout du document.' });
-    }
-});
-
-// Route protégée pour le tableau de bord propriétaire
-app.get('/api/landlord/dashboard', authMiddleware, async (req, res) => {
-    try {
-        if (req.userData.userRole !== 'landlord') {
-            return res.status(403).json({ message: 'Accès refusé. Seuls les propriétaires ont accès à leur tableau de bord.' });
-        }
-        const housingList = await Housing.find({ landlord: req.userData.userId });
-        const dashboardData = await Promise.all(
-            housingList.map(async (housing) => {
-                const pendingBookings = await Booking.find({
-                    housing: housing._id,
-                    status: 'pending'
-                }).populate('tenant', 'name');
-                return {
-                    ...housing.toObject(),
-                    pendingBookings: pendingBookings
-                };
-            })
-        );
-        res.status(200).json({ dashboard: dashboardData });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des données du tableau de bord.' });
-    }
-});
-
-// Route protégée pour récupérer toutes les annonces d'un propriétaire
-app.get('/api/landlord/housing', authMiddleware, async (req, res) => {
-    try {
-        if (req.userData.userRole !== 'landlord') {
-            return res.status(403).json({ message: 'Accès refusé. Seuls les propriétaires peuvent voir leurs annonces.' });
-        }
-        const housingList = await Housing.find({ landlord: req.userData.userId });
-        res.status(200).json({ housing: housingList });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des annonces.' });
-    }
-});
-
 // Route protégée pour qu'un propriétaire puisse voir les réservations de ses logements
 app.get('/api/landlord/bookings', authMiddleware, async (req, res) => {
     try {
@@ -471,47 +871,26 @@ app.put('/api/landlord/bookings/:id', authMiddleware, async (req, res) => {
     }
 });
 
-// Route protégée pour mettre à jour une annonce
-app.put('/api/landlord/housing/:id', authMiddleware, async (req, res) => {
+// Route protégée pour qu'un locataire puisse ajouter un document
+app.post('/api/profile/documents', authMiddleware, async (req, res) => {
     try {
-        const { id } = req.params;
-        const updates = req.body;
-        if (req.userData.userRole !== 'landlord') {
-            return res.status(403).json({ message: 'Accès refusé. Seuls les propriétaires peuvent modifier leurs annonces.' });
+        const { docType, docUrl } = req.body;
+        if (req.userData.userRole !== 'tenant') {
+            return res.status(403).json({ message: 'Accès refusé. Seuls les locataires peuvent ajouter des documents à leur profil.' });
         }
-        const housing = await Housing.findOne({ _id: id, landlord: req.userData.userId });
-        if (!housing) {
-            return res.status(404).json({ message: 'Annonce non trouvée ou vous n\'êtes pas le propriétaire.' });
-        }
-        const updatedHousing = await Housing.findByIdAndUpdate(id, updates, { new: true, runValidators: true });
-        res.status(200).json({
-            message: 'Annonce mise à jour avec succès !',
-            housing: updatedHousing
+        const newDoc = new ProfileDoc({
+            user: req.userData.userId,
+            docType,
+            docUrl
+        });
+        await newDoc.save();
+        res.status(201).json({
+            message: 'Document ajouté avec succès !',
+            document: newDoc
         });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la mise à jour de l\'annonce.' });
-    }
-});
-
-// Route protégée pour supprimer une annonce
-app.delete('/api/landlord/housing/:id', authMiddleware, async (req, res) => {
-    try {
-        const { id } = req.params;
-        if (req.userData.userRole !== 'landlord') {
-            return res.status(403).json({ message: 'Accès refusé. Seuls les propriétaires peuvent supprimer des annonces.' });
-        }
-        const deletedHousing = await Housing.findOneAndDelete({ _id: id, landlord: req.userData.userId });
-        if (!deletedHousing) {
-            return res.status(404).json({ message: 'Annonce non trouvée ou vous n\'êtes pas le propriétaire.' });
-        }
-        res.status(200).json({
-            message: 'Annonce supprimée avec succès !',
-            housing: deletedHousing
-        });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la suppression de l\'annonce.' });
+        res.status(500).json({ message: 'Une erreur est survenue lors de l\'ajout du document.' });
     }
 });
 
