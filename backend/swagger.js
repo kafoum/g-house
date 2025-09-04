@@ -10,9 +10,13 @@ const options = {
         },
         servers: [
             {
-                url: 'http://localhost:5000',
+                url: 'http://localhost:10000',
                 description: 'Serveur de développement'
-            }
+            },
+            {
+        url: 'https://g-house-api.onrender.com', // C'est l'URL publique de votre API sur Render
+        description: 'Serveur de production (Render)'
+      }
         ],
         components: {
             securitySchemes: {
