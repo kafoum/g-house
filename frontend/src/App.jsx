@@ -1,35 +1,52 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useState, useEffect } from 'react';
+import './App.css';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [housing, setHousing] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const fetchHousing = async () => {
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/housing`);
+        if (!response.ok) {
+          throw new Error('Erreur de réseau ou de serveur.');
+        }
+        const data = await response.json();
+        setHousing(data.housing);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchHousing();
+  }, []);
+
+  if (loading) return <div className="loading-message">Chargement des logements...</div>;
+  if (error) return <div className="error-message">Erreur : {error}</div>;
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+    <div className="container">
+      <h1>Annonces de Logements</h1>
+      <div className="housing-list">
+        {housing.length > 0 ? (
+          housing.map((item) => (
+            <div key={item._id} className="housing-item">
+              <h2>{item.title}</h2>
+              <p>{item.description}</p>
+              <p><strong>Prix :</strong> {item.price} €</p>
+              <p><strong>Ville :</strong> {item.location.city}</p>
+            </div>
+          ))
+        ) : (
+          <p>Aucun logement à afficher pour le moment.</p>
+        )}
       </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    </div>
+  );
 }
 
-export default App
+export default App;
