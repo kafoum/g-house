@@ -1,37 +1,12 @@
 const swaggerJsdoc = require('swagger-jsdoc');
+const path = require('path');
+
+// Importe directement le fichier JSON
+const swaggerDocument = require('./api-docs.json');
 
 const options = {
-    definition: {
-        openapi: '3.0.0',
-        info: {
-            title: 'G-House API',
-            version: '1.0.0',
-            description: 'API pour la plateforme de location G-House, gérant les utilisateurs, les logements, les réservations et les documents.'
-        },
-        servers: [
-            {
-                url: 'http://localhost:10000',
-                description: 'Serveur de développement'
-            },
-            {
-        url: 'https://g-house-api.onrender.com', // C'est l'URL publique de votre API sur Render
-        description: 'Serveur de production (Render)'
-      }
-        ],
-        components: {
-            securitySchemes: {
-                bearerAuth: {
-                    type: 'http',
-                    scheme: 'bearer',
-                    bearerFormat: 'JWT',
-                },
-            },
-        },
-        security: [{
-            bearerAuth: [],
-        }],
-    },
-    apis: ['./index.js'], // Chemin vers votre fichier principal
+  swaggerDefinition: swaggerDocument,
+  apis: [], // Laissez vide car nous n'utilisons plus les JSDoc
 };
 
 const swaggerSpec = swaggerJsdoc(options);
