@@ -1,0 +1,68 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "API G-House",
+    "version": "1.0.0",
+    "description": "Documentation de l'API de G-House, plateforme de gestion de logements."
+  },
+  "servers": [
+    {
+      "url": "https://g-house-api.onrender.com/api",
+      "description": "Serveur de production"
+    },
+    {
+      "url": "http://localhost:5000/api",
+      "description": "Serveur de développement local"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Users",
+      "description": "Gestion des utilisateurs (inscription, connexion)"
+    }
+  ],
+  "paths": {
+    "/register": {
+      "post": {
+        "summary": "Inscrit un nouvel utilisateur",
+        "tags": ["Users"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": ["tenant", "landlord"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Utilisateur créé avec succès."
+          },
+          "400": {
+            "description": "Erreur de validation ou email déjà utilisé."
+          },
+          "500": {
+            "description": "Erreur serveur."
+          }
+        }
+      }
+    }
+  }
+}

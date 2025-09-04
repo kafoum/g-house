@@ -13,7 +13,7 @@ const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
 const path = require('path');
-const cors = require('cors');
+const cors = require('cors'); // <-- AJOUTÉ
 
 // Configurez Cloudinary
 cloudinary.config({
@@ -39,9 +39,6 @@ const Message = require('./models/Message');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware CORS
-app.use(cors()); // 
-
 // Configurez le transporteur d'e-mail
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -53,6 +50,9 @@ const transporter = nodemailer.createTransport({
 
 // Middleware : Permet à Express de lire le corps des requêtes en JSON
 app.use(express.json());
+
+// Middleware CORS
+app.use(cors()); // Permet les requêtes depuis votre frontend
 
 // Connexion à la base de données MongoDB
 mongoose.connect(process.env.MONGO_URI, {
@@ -557,6 +557,7 @@ mongoose.connect(process.env.MONGO_URI, {
  * items:
  * type: string
  */
+
 // Route pour l'inscription d'un nouvel utilisateur
 app.post('/api/register', async (req, res) => {
     try {
