@@ -13,7 +13,6 @@ const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
 const path = require('path');
-const cors = require('cors');
 
 // Configurez Cloudinary
 cloudinary.config({
