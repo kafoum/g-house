@@ -15,8 +15,8 @@ const CreateHousing = () => {
       country: '',
     },
     amenities: '',
+    images: [],
   });
-  const [images, setImages] = useState([]); // Pour stocker les fichiers image
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -38,8 +38,10 @@ const CreateHousing = () => {
   };
 
   const handleImageChange = (e) => {
-    // Permet de sélectionner plusieurs fichiers
-    setImages(Array.from(e.target.files)); 
+    setFormData(prev => ({
+      ...prev,
+      images: Array.from(e.target.files),
+    }));
   };
 
   const handleSubmit = async (e) => {
@@ -49,14 +51,12 @@ const CreateHousing = () => {
 
     const token = localStorage.getItem('token');
     if (!token) {
-      setMessage('Vous devez être connecté pour créer une annonce.');
+      setMessage("Vous devez être connecté pour créer une annonce.");
       setLoading(false);
       return;
     }
 
     const dataToSend = new FormData();
-    
-    // Ajout des champs texte et conversion des objets en chaînes JSON
     dataToSend.append('title', formData.title);
     dataToSend.append('description', formData.description);
     dataToSend.append('type', formData.type);
@@ -64,15 +64,14 @@ const CreateHousing = () => {
     dataToSend.append('location', JSON.stringify(formData.location));
     dataToSend.append('amenities', formData.amenities);
 
-    // Ajout des fichiers image
-    images.forEach(image => {
+    formData.images.forEach(image => {
       dataToSend.append('images', image);
     });
 
     try {
       await axios.post('https://g-house-api.onrender.com/api/housing', dataToSend, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${token}`, // Ajout du token
           'Content-Type': 'multipart/form-data',
         },
       });
@@ -82,7 +81,7 @@ const CreateHousing = () => {
         navigate('/housing');
       }, 2000);
     } catch (error) {
-      setMessage(error.response?.data?.message || 'Erreur lors de la création de l\'annonce.');
+      setMessage(error.response?.data?.message || 'Erreur lors de la création de l\'annonce. Vérifiez si votre serveur est en ligne.');
       console.error(error);
     } finally {
       setLoading(false);
@@ -114,7 +113,7 @@ const CreateHousing = () => {
           <label htmlFor="price">Prix (€) :</label>
           <input type="number" id="price" name="price" value={formData.price} onChange={handleChange} required />
         </div>
-        
+
         <h3>Localisation</h3>
         <div>
           <label htmlFor="location.address">Adresse :</label>
@@ -132,16 +131,17 @@ const CreateHousing = () => {
           <label htmlFor="location.country">Pays :</label>
           <input type="text" id="location.country" name="location.country" value={formData.location.country} onChange={handleChange} />
         </div>
-        
+
         <div>
           <label htmlFor="amenities">Commodités (séparées par des virgules) :</label>
           <input type="text" id="amenities" name="amenities" value={formData.amenities} onChange={handleChange} />
         </div>
+
         <div>
-          <label htmlFor="images">Télécharger des images :</label>
-          <input type="file" id="images" name="images" multiple onChange={handleImageChange} accept="image/*" />
+          <label htmlFor="images">Images :</label>
+          <input type="file" id="images" name="images" multiple onChange={handleImageChange} accept="image/*" required />
         </div>
-        
+
         <button type="submit" disabled={loading}>
           {loading ? 'Création en cours...' : 'Créer l\'annonce'}
         </button>
