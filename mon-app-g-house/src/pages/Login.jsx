@@ -2,12 +2,12 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
-const Login = ({ setAuthToken }) => {
+const Login = ({ setAuthToken, setUserRole }) => {
   const [formData, setFormData] = useState({
     email: '',
     password: '',
   });
-  
+
   const [message, setMessage] = useState('');
   const navigate = useNavigate();
 
@@ -20,12 +20,20 @@ const Login = ({ setAuthToken }) => {
     try {
       const response = await axios.post('https://g-house-api.onrender.com/api/login', formData);
       const { token, user } = response.data;
-      // Stocke le token dans le localStorage pour les futures requêtes
+      
+      // Stocke le token et les informations de l'utilisateur dans le localStorage
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(user));
+      localStorage.setItem('userRole', user.role); // 🚨 AJOUT DE CETTE LIGNE
+
       // Met à jour l'état d'authentification dans l'application principale
       setAuthToken(token);
+      if (setUserRole) {
+        setUserRole(user.role); // 🚨 AJOUT DE CETTE LIGNE
+      }
+      
       setMessage('Connexion réussie !');
+
       // Redirection après une connexion réussie
       setTimeout(() => {
         navigate('/'); // Redirection vers la page d'accueil

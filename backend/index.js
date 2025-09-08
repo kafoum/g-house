@@ -63,6 +63,17 @@ mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopol
 app.post('/api/register', async (req, res) => {
     try {
         const { name, email, password, role } = req.body;
+
+        // Validation simple des champs
+        if (!name || !email || !password || !role) {
+            return res.status(400).json({ message: 'Tous les champs sont requis.' });
+        }
+
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(409).json({ message: 'Cet email est déjà utilisé.' });
+        }
+
         const hashedPassword = await bcrypt.hash(password, 10);
         const newUser = new User({ name, email, password: hashedPassword, role });
         await newUser.save();
@@ -90,19 +101,11 @@ app.post('/api/login', async (req, res) => {
 // Route pour la création d'une nouvelle annonce
 app.post('/api/housing', authMiddleware, upload.array('images'), async (req, res) => {
     try {
-        // Ajout de logs pour vérifier ce qui est reçu
-        console.log("Corps de la requête (req.body) :", req.body);
-        console.log("Fichiers uploadés (req.files) :", req.files);
-
-        if (!req.body) {
-            return res.status(400).json({ message: "Les données du formulaire sont manquantes." });
-        }
-        
         const { title, description, price, location, type, amenities } = req.body;
-        const landlord = req.userData.userId;
+        const landlordId = req.userData.userId; // Récupération de l'ID du token
 
-        if (req.userData.userRole !== 'landlord') {
-            return res.status(403).json({ message: 'Accès refusé. Seuls les propriétaires peuvent créer des annonces.' });
+        if (!landlordId) {
+            return res.status(401).json({ message: 'ID de propriétaire manquant. Vous devez être connecté pour créer une annonce.' });
         }
 
         if (!req.files || req.files.length === 0) {
@@ -111,7 +114,6 @@ app.post('/api/housing', authMiddleware, upload.array('images'), async (req, res
 
         const imageUrls = [];
         for (const file of req.files) {
-            // Utiliser le chemin du buffer pour l'upload
             const result = await cloudinary.uploader.upload(`data:image/jpeg;base64,${file.buffer.toString('base64')}`);
             imageUrls.push(result.secure_url);
         }
@@ -124,7 +126,7 @@ app.post('/api/housing', authMiddleware, upload.array('images'), async (req, res
             type,
             amenities: amenities.split(',').map(a => a.trim()),
             images: imageUrls,
-            landlord
+            landlord: landlordId
         });
 
         await newHousing.save();
@@ -140,7 +142,7 @@ app.get('/api/housing', async (req, res) => {
     try {
         const query = {};
         if (req.query.city) {
-            query['location.city'] = req.query.city;
+            query['location.city'] = new RegExp(req.query.city, 'i'); // Recherche insensible à la casse
         }
         if (req.query.price_min || req.query.price_max) {
             query.price = {};

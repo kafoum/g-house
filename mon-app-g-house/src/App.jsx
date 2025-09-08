@@ -6,9 +6,10 @@ import Home from './pages/Home';
 import HousingList from './pages/HousingList';
 import HousingDetail from './pages/HousingDetail';
 import CreateHousing from './pages/CreateHousing';
-import EditHousing from './pages/EditHousing'; // Import du composant de modification
-import ConversationsList from './pages/ConversationsList'; // Import de la liste de conversations
-import Conversation from './pages/Conversation'; // Import de la page de conversation
+import ConversationsList from './pages/ConversationsList';
+import Conversation from './pages/Conversation';
+import UpdateHousing from './pages/UpdateHousing';
+import ManageHousing from './pages/ManageHousing';
 import './App.css';
 
 const App = () => {
@@ -16,9 +17,11 @@ const App = () => {
   const [userRole, setUserRole] = useState(null);
 
   useEffect(() => {
+    // Récupère les informations de l'utilisateur stockées localement
     const token = localStorage.getItem('token');
     const user = JSON.parse(localStorage.getItem('user'));
-    if (token && user) {
+
+    if (token && user && user.role) {
       setAuthToken(token);
       setUserRole(user.role);
     }
@@ -36,12 +39,18 @@ const App = () => {
       <nav>
         <Link to="/">Accueil</Link>
         <Link to="/housing">Logements</Link>
+        {/* Afficher ces liens uniquement pour les propriétaires connectés */}
         {userRole === 'landlord' && (
-          <Link to="/housing/create">Créer une annonce</Link>
+          <>
+            <Link to="/housing/create">Créer une annonce</Link>
+            <Link to="/manage-housing">Gérer mes annonces</Link>
+          </>
         )}
+        {/* Afficher ce lien uniquement si l'utilisateur est connecté */}
         {authToken && (
           <Link to="/conversations">Messages</Link>
         )}
+        {/* Afficher les liens de connexion/déconnexion selon l'état d'authentification */}
         {!authToken ? (
           <>
             <Link to="/login">Connexion</Link>
@@ -55,13 +64,34 @@ const App = () => {
         <Routes>
           <Route path="/" element={<Home authToken={authToken} />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/login" element={<Login setAuthToken={setAuthToken} />} />
+          {/* Passer setAuthToken et setUserRole au composant Login */}
+          <Route path="/login" element={<Login setAuthToken={setAuthToken} setUserRole={setUserRole} />} />
           <Route path="/housing" element={<HousingList />} />
           <Route path="/housing/:id" element={<HousingDetail />} />
-          <Route path="/housing/create" element={userRole === 'landlord' ? <CreateHousing /> : <Navigate to="/login" />} />
-          <Route path="/housing/edit/:id" element={userRole === 'landlord' ? <EditHousing /> : <Navigate to="/login" />} />
-          <Route path="/conversations" element={authToken ? <ConversationsList /> : <Navigate to="/login" />} />
-          <Route path="/conversations/:id" element={authToken ? <Conversation /> : <Navigate to="/login" />} />
+          
+          {/* Routes protégées pour les propriétaires */}
+          <Route 
+            path="/housing/create" 
+            element={userRole === 'landlord' ? <CreateHousing /> : <Navigate to="/login" />} 
+          />
+          <Route 
+            path="/manage-housing" 
+            element={userRole === 'landlord' ? <ManageHousing /> : <Navigate to="/login" />} 
+          />
+          <Route 
+            path="/update-housing/:id" 
+            element={userRole === 'landlord' ? <UpdateHousing /> : <Navigate to="/login" />} 
+          />
+
+          {/* Routes protégées pour les utilisateurs authentifiés */}
+          <Route 
+            path="/conversations" 
+            element={authToken ? <ConversationsList /> : <Navigate to="/login" />} 
+          />
+          <Route 
+            path="/conversations/:id" 
+            element={authToken ? <Conversation /> : <Navigate to="/login" />} 
+          />
         </Routes>
       </main>
     </Router>
