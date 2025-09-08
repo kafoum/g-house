@@ -1,0 +1,52 @@
+### Enregistrer un nouveau locataire
+POST http://localhost:5000/api/register
+Content-Type: application/json
+
+{
+  "name": "Julie Locataire",
+  "email": "julie.locataire@email.com",
+  "password": "MotDePasse123",
+  "role": "tenant"
+}
+
+### Enregistrer un nouveau propriétaire
+POST http://localhost:5000/api/register
+Content-Type: application/json
+
+{
+  "name": "Propriétaire Test",
+  "email": "proprietaire.test@email.com",
+  "password": "MotDePasseSecret",
+  "role": "landlord"
+}
+
+### Connexion Propriétaire
+POST http://localhost:5000/api/login
+Content-Type: application/json
+
+{
+  "email": "proprietaire.test@email.com",
+  "password": "MotDePasseSecret"
+}
+
+### Créer une nouvelle annonce de logement
+POST http://localhost:5000/api/housing
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4YmExODg5NDM4Yjg0NjljMGQ3Y2M0NyIsInJvbGUiOiJsYW5kbG9yZCIsInVzZXJOYW1lIjoiUHJvcHJpw6l0YWlyZSBUZXN0IiwiaWF0IjoxNzU3MDI2OTEwLCJleHAiOjE3NTcwMzc3MTB9.4N8ICfjesqInibxS1WkJH3O7hgfrwNberCoqhwRi_A8
+
+{
+  "title": "Superbe studio au centre-ville",
+  "description": "Studio moderne et entièrement équipé.",
+  "price": 850,
+  "location": {
+    "city": "Paris",
+    "address": "123 Rue de la Paix",
+    "zipCode": "75001"
+  },
+  "type": "studio",
+  "amenities": ["Wi-Fi", "Balcon"],
+  "images": ["https://example.com/studio1.jpg"]
+}
+
+### Récupérer tous les logements (sans filtre)
+GET http://localhost:5000/api/housing

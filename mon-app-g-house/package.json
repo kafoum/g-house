@@ -1,5 +1,5 @@
 {
-  "name": "frontend",
+  "name": "mon-app-g-house",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -13,9 +13,7 @@
     "axios": "^1.11.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "react-router-dom": "^7.8.2",
-    "react-slick": "^0.31.0",
-    "slick-carousel": "^1.8.1"
+    "react-router-dom": "^7.8.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",

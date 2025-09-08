@@ -1,0 +1,29 @@
+/* Style pour le carrousel global */
+.carousel-container {
+    width: 80%;
+    margin: 50px auto;
+}
+
+/* Style pour chaque diapositive */
+.slide-item {
+    position: relative;
+    text-align: center;
+}
+
+.slide-image {
+    width: 100%;
+    height: 500px;
+    object-fit: cover; /* S'assure que l'image couvre le conteneur */
+    border-radius: 10px;
+}
+
+.slide-info {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 5px;
+}
