@@ -9,7 +9,8 @@ module.exports = (req, res, next) => {
     const decodedToken = jwt.verify(token, process.env.JWT_SECRET);
 
     // 3. Ajouter les informations de l'utilisateur à l'objet de la requête
-    req.userData = { userId: decodedToken.id, userRole: decodedToken.role };
+    // 🚨 Le changement crucial : on utilise decodedToken.userId au lieu de decodedToken.id
+    req.userData = { userId: decodedToken.userId, userRole: decodedToken.role }; 
 
     // 4. Continuer vers la prochaine fonction de la route
     next();
