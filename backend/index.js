@@ -15,6 +15,11 @@ const swaggerSpec = require('./swagger');
 const path = require('path');
 const cors = require('cors');
 
+// Connecte à MongoDB
+mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log('Connexion à MongoDB réussie'))
+    .catch(err => console.error('Erreur de connexion à MongoDB', err));
+
 // Configurez Cloudinary
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -45,26 +50,127 @@ app.use(cors());
 // Middleware pour analyser les requêtes JSON
 app.use(express.json());
 
-// Middleware pour la vérification du token JWT
+// Définition de la route de test
+app.get('/', (req, res) => {
+    res.send('Bienvenue sur l\'API de G-House ! La connexion à la DB est établie.');
+});
+
+// Route d'inscription
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { name, email, password, role } = req.body;
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const user = new User({ name, email, password: hashedPassword, role });
+        await user.save();
+        res.status(201).json({ message: 'Utilisateur enregistré avec succès.' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de l\'enregistrement de l\'utilisateur.', error });
+    }
+});
+
+// Route de connexion
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+        }
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ message: 'Mot de passe incorrect.' });
+        }
+        const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        res.status(200).json({ message: 'Connexion réussie', token });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la connexion.', error });
+    }
+});
+
+// Route pour l'upload d'image
+app.post('/api/upload', upload.single('image'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: 'Aucun fichier n\'a été téléchargé.' });
+        }
+        const result = await cloudinary.uploader.upload(`data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`);
+        res.status(200).json({ imageUrl: result.secure_url });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors du téléchargement de l\'image.' });
+    }
+});
+
+// Middleware d'authentification appliqué uniquement aux routes sécurisées
 app.use(authMiddleware);
 
-// Route pour démarrer une conversation
-app.post('/api/conversations/start', authMiddleware, async (req, res) => {
+// Routes sécurisées (nécessitant un token JWT)
+// Route pour obtenir les informations de l'utilisateur connecté
+app.get('/api/user', async (req, res) => {
     try {
-        const { recipientId, housingId } = req.body; // Récupère le housingId du corps de la requête
+        const user = await User.findById(req.userData.userId).select('-password');
+        if (!user) {
+            return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+        }
+        res.status(200).json(user);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la récupération des données utilisateur.' });
+    }
+});
+
+// Route pour créer une annonce de logement
+app.post('/api/housing', async (req, res) => {
+    try {
+        const housing = new Housing({ ...req.body, landlord: req.userData.userId });
+        await housing.save();
+        res.status(201).json({ message: 'Annonce créée avec succès', housing });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la création de l\'annonce.' });
+    }
+});
+
+// Route pour l'upload de documents de profil
+app.post('/api/documents', upload.single('document'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: 'Aucun document n\'a été téléchargé.' });
+        }
+
+        const result = await cloudinary.uploader.upload(`data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`, {
+            resource_type: "auto",
+        });
+
+        const newDoc = new ProfileDoc({
+            owner: req.userData.userId,
+            docUrl: result.secure_url,
+            docName: req.file.originalname,
+            docType: req.file.mimetype,
+            uploadDate: new Date()
+        });
+        await newDoc.save();
+        res.status(201).json({ message: 'Document téléchargé avec succès.', doc: newDoc });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors du téléchargement du document.' });
+    }
+});
+
+// Route pour démarrer une conversation
+app.post('/api/conversations/start', async (req, res) => {
+    try {
+        const { recipientId, housingId } = req.body;
         const senderId = req.userData.userId;
 
-        // Recherche une conversation existante entre ces deux participants et ce logement
         let conversation = await Conversation.findOne({
             participants: { $all: [senderId, recipientId] },
             housing: housingId
         });
 
         if (!conversation) {
-            // Créer une nouvelle conversation si elle n'existe pas
             conversation = new Conversation({
                 participants: [senderId, recipientId],
-                housing: housingId // Assigner le housingId
+                housing: housingId
             });
             await conversation.save();
         }
@@ -77,7 +183,7 @@ app.post('/api/conversations/start', authMiddleware, async (req, res) => {
 });
 
 // Route pour obtenir la liste des conversations de l'utilisateur
-app.get('/api/conversations', authMiddleware, async (req, res) => {
+app.get('/api/conversations', async (req, res) => {
     try {
         const userId = req.userData.userId;
         const conversations = await Conversation.find({ participants: userId }).populate('participants', 'name');
@@ -89,7 +195,7 @@ app.get('/api/conversations', authMiddleware, async (req, res) => {
 });
 
 // Route pour obtenir les messages d'une conversation spécifique
-app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
+app.get('/api/conversations/:id/messages', async (req, res) => {
     try {
         const { id } = req.params;
         const userId = req.userData.userId;
@@ -106,7 +212,7 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
 });
 
 // Route pour envoyer un message
-app.post('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
+app.post('/api/conversations/:id/messages', async (req, res) => {
     try {
         const { id } = req.params;
         const { content } = req.body;
@@ -133,11 +239,6 @@ app.post('/api/conversations/:id/messages', authMiddleware, async (req, res) => 
 
 // Route pour la documentation de l'API
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-
-// Définition de la route de test
-app.get('/', (req, res) => {
-    res.send('Bienvenue sur l\'API de G-House ! La connexion à la DB est établie.');
-});
 
 // Le serveur démarre et écoute sur le port défini
 app.listen(PORT, () => {
