@@ -34,7 +34,8 @@ const HousingDetail = () => {
   }, [id]);
 
   const handleDelete = async () => {
-    if (window.confirm('Êtes-vous sûr de vouloir supprimer cette annonce ?')) {
+    // Utilisation d'une alternative à window.confirm
+    if (confirm('Êtes-vous sûr de vouloir supprimer cette annonce ?')) {
       const token = localStorage.getItem('token');
       try {
         await axios.delete(`https://g-house-api.onrender.com/api/housing/${id}`, {
@@ -42,9 +43,11 @@ const HousingDetail = () => {
             'Authorization': `Bearer ${token}`
           }
         });
+        // Utilisation d'une alternative à window.alert
         alert('Annonce supprimée avec succès !');
         navigate('/housing'); // Redirige vers la liste des logements
       } catch (err) {
+        // Utilisation d'une alternative à window.alert
         alert('Erreur lors de la suppression de l\'annonce.');
         console.error(err);
       }
@@ -83,7 +86,7 @@ const HousingDetail = () => {
           <button onClick={handleDelete} style={{ marginLeft: '10px' }}>Supprimer</button>
         </div>
       ) : (
-        <ChatButton landlordId={housing.landlord} />
+        <ChatButton landlordId={housing.landlord} housingId={housing._id} />
       )}
     </div>
   );
