@@ -36,64 +36,81 @@ const App = () => {
 
   return (
     <Router>
-      <nav>
-        <Link to="/">Accueil</Link>
-        <Link to="/housing">Logements</Link>
-        {/* Afficher ces liens uniquement pour les propriétaires connectés */}
-        {userRole === 'landlord' && (
-          <>
-            <Link to="/housing/create">Créer une annonce</Link>
-            <Link to="/manage-housing">Gérer mes annonces</Link>
-          </>
-        )}
-        {/* Afficher ce lien uniquement si l'utilisateur est connecté */}
-        {authToken && (
-          <Link to="/conversations">Messages</Link>
-        )}
-        {/* Afficher les liens de connexion/déconnexion selon l'état d'authentification */}
-        {!authToken ? (
-          <>
-            <Link to="/login">Connexion</Link>
-            <Link to="/register">Inscription</Link>
-          </>
-        ) : (
-          <button onClick={handleLogout}>Déconnexion</button>
-        )}
-      </nav>
-      <main>
-        <Routes>
-          <Route path="/" element={<Home authToken={authToken} />} />
-          <Route path="/register" element={<Register />} />
-          {/* Passer setAuthToken et setUserRole au composant Login */}
-          <Route path="/login" element={<Login setAuthToken={setAuthToken} setUserRole={setUserRole} />} />
-          <Route path="/housing" element={<HousingList />} />
-          <Route path="/housing/:id" element={<HousingDetail />} />
-          
-          {/* Routes protégées pour les propriétaires */}
-          <Route 
-            path="/housing/create" 
-            element={userRole === 'landlord' ? <CreateHousing /> : <Navigate to="/login" />} 
-          />
-          <Route 
-            path="/manage-housing" 
-            element={userRole === 'landlord' ? <ManageHousing /> : <Navigate to="/login" />} 
-          />
-          <Route 
-            path="/update-housing/:id" 
-            element={userRole === 'landlord' ? <UpdateHousing /> : <Navigate to="/login" />} 
-          />
+        <nav className="bg-white shadow-lg p-4 flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+                <Link to="/" className="text-xl font-bold text-blue-600 hover:text-blue-800 transition-colors duration-200">
+                    G-House
+                </Link>
+                <Link to="/housing" className="text-gray-700 hover:text-blue-600 transition-colors duration-200">
+                    Logements
+                </Link>
+                {userRole === 'landlord' && (
+                    <>
+                        <Link to="/housing/create" className="text-gray-700 hover:text-blue-600 transition-colors duration-200">
+                            Créer une annonce
+                        </Link>
+                        <Link to="/manage-housing" className="text-gray-700 hover:text-blue-600 transition-colors duration-200">
+                            Gérer mes annonces
+                        </Link>
+                    </>
+                )}
+            </div>
+            <div className="flex items-center space-x-4">
+                {authToken && (
+                    <Link to="/conversations" className="text-gray-700 hover:text-blue-600 transition-colors duration-200">
+                        Messages
+                    </Link>
+                )}
+                {!authToken ? (
+                    <>
+                        <Link to="/login" className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-blue-600 transition-colors duration-200">
+                            Connexion
+                        </Link>
+                        <Link to="/register" className="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-full hover:bg-gray-300 transition-colors duration-200">
+                            Inscription
+                        </Link>
+                    </>
+                ) : (
+                    <button 
+                        onClick={handleLogout} 
+                        className="bg-red-500 text-white font-semibold py-2 px-4 rounded-full hover:bg-red-600 transition-colors duration-200"
+                    >
+                        Déconnexion
+                    </button>
+                )}
+            </div>
+        </nav>
+        <main className="container mx-auto mt-8 p-4">
+            <Routes>
+                <Route path="/" element={<Home authToken={authToken} />} />
+                <Route path="/register" element={<Register />} />
+                <Route path="/login" element={<Login setAuthToken={setAuthToken} setUserRole={setUserRole} />} />
+                <Route path="/housing" element={<HousingList />} />
+                <Route path="/housing/:id" element={<HousingDetail />} />
+                
+                <Route 
+                    path="/housing/create" 
+                    element={userRole === 'landlord' ? <CreateHousing /> : <Navigate to="/login" />} 
+                />
+                <Route 
+                    path="/manage-housing" 
+                    element={userRole === 'landlord' ? <ManageHousing /> : <Navigate to="/login" />} 
+                />
+                <Route 
+                    path="/update-housing/:id" 
+                    element={userRole === 'landlord' ? <UpdateHousing /> : <Navigate to="/login" />} 
+                />
 
-          {/* Routes protégées pour les utilisateurs authentifiés */}
-          <Route 
-            path="/conversations" 
-            element={authToken ? <ConversationsList /> : <Navigate to="/login" />} 
-          />
-          <Route 
-            path="/conversations/:id" 
-            element={authToken ? <Conversation /> : <Navigate to="/login" />} 
-          />
-        </Routes>
-      </main>
+                <Route 
+                    path="/conversations" 
+                    element={authToken ? <ConversationsList /> : <Navigate to="/login" />} 
+                />
+                <Route 
+                    path="/conversations/:id" 
+                    element={authToken ? <Conversation /> : <Navigate to="/login" />} 
+                />
+            </Routes>
+        </main>
     </Router>
   );
 };
