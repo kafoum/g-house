@@ -44,10 +44,8 @@ const Message = require('./models/Message');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware CORS
+// Middleware CORS et JSON
 app.use(cors());
-
-// Middleware pour analyser les requêtes JSON
 app.use(express.json());
 
 // Définition de la route de test
@@ -55,7 +53,7 @@ app.get('/', (req, res) => {
     res.send('Bienvenue sur l\'API de G-House ! La connexion à la DB est établie.');
 });
 
-// Route d'inscription
+// --- Routes d'authentification et publiques ---
 app.post('/api/auth/register', async (req, res) => {
     try {
         const { name, email, password, role } = req.body;
@@ -68,7 +66,6 @@ app.post('/api/auth/register', async (req, res) => {
     }
 });
 
-// Route de connexion
 app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -87,7 +84,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// Route pour l'upload d'image
+// Route pour l'upload d'image (accessible sans auth pour le moment)
 app.post('/api/upload', upload.single('image'), async (req, res) => {
     try {
         if (!req.file) {
@@ -101,11 +98,10 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
     }
 });
 
-// Middleware d'authentification appliqué uniquement aux routes sécurisées
+// --- Middleware d'authentification pour les routes sécurisées ---
 app.use(authMiddleware);
 
-// Routes sécurisées (nécessitant un token JWT)
-// Route pour obtenir les informations de l'utilisateur connecté
+// --- Routes sécurisées (nécessitant un token JWT) ---
 app.get('/api/user', async (req, res) => {
     try {
         const user = await User.findById(req.userData.userId).select('-password');
@@ -118,7 +114,6 @@ app.get('/api/user', async (req, res) => {
     }
 });
 
-// Route pour créer une annonce de logement
 app.post('/api/housing', async (req, res) => {
     try {
         const housing = new Housing({ ...req.body, landlord: req.userData.userId });
@@ -129,17 +124,14 @@ app.post('/api/housing', async (req, res) => {
     }
 });
 
-// Route pour l'upload de documents de profil
 app.post('/api/documents', upload.single('document'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ message: 'Aucun document n\'a été téléchargé.' });
         }
-
         const result = await cloudinary.uploader.upload(`data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`, {
             resource_type: "auto",
         });
-
         const newDoc = new ProfileDoc({
             owner: req.userData.userId,
             docUrl: result.secure_url,
@@ -149,24 +141,20 @@ app.post('/api/documents', upload.single('document'), async (req, res) => {
         });
         await newDoc.save();
         res.status(201).json({ message: 'Document téléchargé avec succès.', doc: newDoc });
-
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Erreur lors du téléchargement du document.' });
     }
 });
 
-// Route pour démarrer une conversation
 app.post('/api/conversations/start', async (req, res) => {
     try {
         const { recipientId, housingId } = req.body;
         const senderId = req.userData.userId;
-
         let conversation = await Conversation.findOne({
             participants: { $all: [senderId, recipientId] },
             housing: housingId
         });
-
         if (!conversation) {
             conversation = new Conversation({
                 participants: [senderId, recipientId],
@@ -174,7 +162,6 @@ app.post('/api/conversations/start', async (req, res) => {
             });
             await conversation.save();
         }
-
         res.status(200).json({ conversationId: conversation._id });
     } catch (error) {
         console.error(error);
@@ -182,7 +169,6 @@ app.post('/api/conversations/start', async (req, res) => {
     }
 });
 
-// Route pour obtenir la liste des conversations de l'utilisateur
 app.get('/api/conversations', async (req, res) => {
     try {
         const userId = req.userData.userId;
@@ -194,7 +180,6 @@ app.get('/api/conversations', async (req, res) => {
     }
 });
 
-// Route pour obtenir les messages d'une conversation spécifique
 app.get('/api/conversations/:id/messages', async (req, res) => {
     try {
         const { id } = req.params;
@@ -211,24 +196,20 @@ app.get('/api/conversations/:id/messages', async (req, res) => {
     }
 });
 
-// Route pour envoyer un message
 app.post('/api/conversations/:id/messages', async (req, res) => {
     try {
         const { id } = req.params;
         const { content } = req.body;
         const senderId = req.userData.userId;
-
         const conversation = await Conversation.findById(id);
         if (!conversation || !conversation.participants.includes(senderId)) {
             return res.status(403).json({ message: 'Accès refusé. Vous ne pouvez pas envoyer de message à cette conversation.' });
         }
-
         const newMessage = new Message({
             conversation: id,
             sender: senderId,
             content,
         });
-
         await newMessage.save();
         res.status(201).json({ message: 'Message envoyé avec succès !', newMessage });
     } catch (error) {
