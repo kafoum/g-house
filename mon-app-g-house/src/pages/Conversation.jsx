@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import api from './../api/api'; 
+import axios from 'axios';
 import { jwtDecode } from 'jwt-decode';
 
 const Conversation = () => {
@@ -73,14 +73,28 @@ const Conversation = () => {
     useEffect(() => {
         const fetchMessagesAndConversation = async () => {
             try {
-                setLoading(true);
-                // Utilisation de l'instance API centralisée pour la requête
-                const messagesRes = await api.get(`/conversations/${id}/messages`);
+                const token = localStorage.getItem('token');
+                if (!token) {
+                    setError('Vous devez être connecté pour voir les messages.');
+                    setLoading(false);
+                    return;
+                }
+                
+                const config = {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                };
+                
+                // Obtenir l'URL de l'API
+                const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+                // Récupérer les messages initiaux
+                const messagesRes = await axios.get(`${API_URL}/api/conversations/${id}/messages`, config);
                 setMessages(messagesRes.data.messages);
                 
-                const convRes = await api.get(`/conversations/${id}`);
-                setConversation(convRes.data.conversation);
-
+                // Récupérer les détails de la conversation
+                // const convRes = await axios.get(`${API_URL}/api/conversations/${id}`, config);
+                // setConversation(convRes.data.conversation);
+                
                 setLoading(false);
             } catch (err) {
                 setError('Erreur lors du chargement des messages.');
@@ -88,41 +102,38 @@ const Conversation = () => {
                 setLoading(false);
             }
         };
-        fetchMessagesAndConversation();
+
+        if (id) {
+            fetchMessagesAndConversation();
+        }
     }, [id]);
 
-    const handleSendMessage = async (e) => {
+    const handleSendMessage = (e) => {
         e.preventDefault();
-        if (newMessage.trim() === '') return;
-
-        try {
-            if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-                const messageToSend = {
-                    type: 'message',
-                    conversationId: id,
-                    content: newMessage,
-                };
-                ws.current.send(JSON.stringify(messageToSend));
-                setNewMessage('');
-            }
-        } catch (error) {
-            console.error("Erreur lors de l'envoi du message via WebSocket:", error);
+        if (newMessage.trim() === '' || !ws.current || ws.current.readyState !== WebSocket.OPEN) {
+            return;
         }
+
+        // Envoyer le message via WebSocket
+        ws.current.send(JSON.stringify({
+            type: 'message',
+            content: newMessage,
+            conversationId: id,
+            token: localStorage.getItem('token')
+        }));
+        
+        setNewMessage('');
     };
-
-    if (loading) {
-        return <div className="text-center mt-8 text-gray-600">Chargement des messages...</div>;
-    }
-
-    if (error) {
-        return <div className="text-center mt-8 text-red-500">{error}</div>;
-    }
+    
+    if (loading) return <div className="text-center text-xl font-medium text-gray-700">Chargement des messages...</div>;
+    if (error) return <div className="text-center text-red-500 font-bold">{error}</div>;
 
     return (
-        <div className="container mx-auto p-4 max-w-2xl bg-white rounded-lg shadow-xl">
-            <h2 className="text-2xl font-bold mb-4 text-center">Conversation</h2>
-            <div className="chat-box space-y-4 overflow-y-auto max-h-96 p-4 border rounded-lg bg-gray-50">
-                {messages.length === 0 && <p className="text-center text-gray-500">Aucun message pour le moment.</p>}
+        <div className="flex flex-col h-[80vh] bg-white rounded-xl shadow-lg p-6 max-w-2xl mx-auto">
+            <h1 className="text-2xl font-bold text-gray-800 mb-4">
+                Conversation
+            </h1>
+            <div className="flex-1 overflow-y-auto space-y-4 pr-2 mb-4">
                 {messages.map((msg) => (
                     <div
                         key={msg._id}
