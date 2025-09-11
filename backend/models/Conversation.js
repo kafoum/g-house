@@ -1,24 +1,24 @@
 const mongoose = require('mongoose');
 
 const conversationSchema = new mongoose.Schema({
-    // La liste des participants à la conversation
+    // Les participants à la conversation, référence au modèle User
     participants: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true
     }],
-    // Le logement associé à la conversation
+    // Le logement associé à la conversation. Le champ est désormais optionnel.
     housing: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Housing',
-        required: true
+        required: false
     },
-    // Le dernier message de la conversation
-    lastMessage: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Message'
+    // Ajout d'un champ sujet pour identifier facilement la conversation
+    subject: {
+        type: String,
+        required: false
     },
-    // La date de création de la conversation
+    // Date de création de la conversation
     createdAt: {
         type: Date,
         default: Date.now
