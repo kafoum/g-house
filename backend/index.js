@@ -41,18 +41,15 @@ const Message = require('./models/Message');
 
 // Crée une instance de l'application Express
 const app = express();
-const PORT = process.env.PORT || 5000;
-
-// Crée un serveur HTTP et y attache l'application Express
-const server = http.createServer(app);
-
-// Configurez le serveur Socket.IO avec les options CORS
-const io = new Server(server, {
+const httpServer = http.createServer(app);
+const io = new Server(httpServer, {
     cors: {
-        origin: "*", // Permet les connexions depuis n'importe quelle origine (ajuster si nécessaire)
+        origin: "*",
         methods: ["GET", "POST"]
     }
 });
+
+const PORT = process.env.PORT || 5000;
 
 // Middleware CORS
 app.use(cors());
@@ -60,61 +57,58 @@ app.use(cors());
 // Middleware pour analyser les requêtes JSON
 app.use(express.json());
 
-// Connexion à la base de données
-mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('Connecté à la base de données MongoDB'))
-    .catch(err => console.error('Erreur de connexion à MongoDB:', err));
+// Fonction de connexion à la base de données
+const connectDB = async () => {
+    try {
+        await mongoose.connect(process.env.MONGO_URI);
+        console.log('Connexion à la base de données établie avec succès !');
+    } catch (error) {
+        console.error('Erreur de connexion à la base de données :', error);
+        // Arrête le processus en cas d'échec de connexion critique
+        process.exit(1);
+    }
+};
 
-// Routes WebSocket
+// Événements de connexion Mongoose
+mongoose.connection.on('connected', () => {
+    console.log('Mongoose est connecté.');
+});
+
+mongoose.connection.on('disconnected', () => {
+    console.log('Mongoose est déconnecté.');
+});
+
+// Gère la déconnexion de l'application
+process.on('SIGINT', async () => {
+    await mongoose.connection.close();
+    console.log('Mongoose déconnecté via la terminaison de l\'application.');
+    process.exit(0);
+});
+
+// Établir la connexion à la base de données
+connectDB();
+
+// Gère les connexions WebSocket
 io.on('connection', (socket) => {
-    console.log('Un utilisateur est connecté via WebSocket');
+    console.log('Nouvel utilisateur connecté par WebSocket:', socket.id);
 
-    // Écoute l'événement 'joinConversation' pour rejoindre une salle de discussion
-    socket.on('joinConversation', (conversationId) => {
+    socket.on('join_conversation', (conversationId) => {
         socket.join(conversationId);
-        console.log(`L'utilisateur a rejoint la conversation : ${conversationId}`);
+        console.log(`Utilisateur ${socket.id} a rejoint la conversation ${conversationId}`);
     });
 
-    // Écoute l'événement 'sendMessage'
-    socket.on('sendMessage', async (messageData) => {
-        try {
-            const { conversationId, senderId, content } = messageData;
-
-            // Vérifie que l'expéditeur a l'autorisation
-            const conversation = await Conversation.findById(conversationId);
-            if (!conversation || !conversation.participants.includes(senderId)) {
-                console.error('Accès refusé. L\'utilisateur n\'est pas un participant.');
-                return;
-            }
-
-            // Crée et enregistre le nouveau message dans la base de données
-            const newMessage = new Message({
-                conversation: conversationId,
-                sender: senderId,
-                content: content,
-            });
-
-            await newMessage.save();
-
-            // Peuple le sender pour l'envoi
-            await newMessage.populate('sender', 'name');
-
-            // Émet le nouveau message à tous les clients dans la conversation
-            io.to(conversationId).emit('receiveMessage', newMessage);
-            console.log('Message émis avec succès via WebSocket !');
-
-        } catch (error) {
-            console.error('Erreur lors de l\'envoi du message via WebSocket:', error);
-        }
+    socket.on('send_message', (data) => {
+        io.to(data.conversationId).emit('receive_message', data);
     });
 
     socket.on('disconnect', () => {
-        console.log('Un utilisateur s\'est déconnecté du WebSocket');
+        console.log('Utilisateur déconnecté:', socket.id);
     });
 });
 
-// Route pour l'enregistrement d'un utilisateur
-app.post('/api/register', async (req, res) => {
+// Routes de l'API
+// Route d'enregistrement
+app.post('/api/auth/register', async (req, res) => {
     try {
         const { name, email, password, role } = req.body;
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -122,247 +116,177 @@ app.post('/api/register', async (req, res) => {
         await user.save();
         res.status(201).json({ message: 'Utilisateur enregistré avec succès !' });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de l\'enregistrement.' });
+        res.status(500).json({ message: 'Erreur lors de l\'enregistrement de l\'utilisateur.', error: error.message });
     }
 });
 
-// Route pour la connexion d'un utilisateur
-app.post('/api/login', async (req, res) => {
+// Route de connexion
+app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
         const user = await User.findOne({ email });
-        if (!user) {
-            return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+        if (!user || !await bcrypt.compare(password, user.password)) {
+            return res.status(401).json({ message: 'Identifiants invalides.' });
         }
-        const isPasswordValid = await bcrypt.compare(password, user.password);
-        if (!isPasswordValid) {
-            return res.status(401).json({ message: 'Mot de passe incorrect.' });
-        }
-        const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        const token = jwt.sign({ userId: user._id, role: user.role, name: user.name }, process.env.JWT_SECRET, { expiresIn: '1h' });
         res.status(200).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la connexion.' });
+        res.status(500).json({ message: 'Erreur lors de la connexion.', error: error.message });
     }
 });
 
-// Routes de gestion des logements
-app.get('/api/housing', async (req, res) => {
+// Routes pour les logements
+// Créer un logement
+app.post('/api/housing', authMiddleware, upload.array('images', 5), async (req, res) => {
     try {
-        const housings = await Housing.find().populate('landlord', 'name');
-        res.status(200).json({ housings });
+        if (req.userData.role !== 'landlord') {
+            return res.status(403).json({ message: 'Accès refusé. Seuls les propriétaires peuvent créer des logements.' });
+        }
+        const { title, description, price, location, bathrooms, bedrooms, amenities, propertyType } = req.body;
+        const images = [];
+        for (const file of req.files) {
+            const result = await cloudinary.uploader.upload(`data:image/png;base64,${file.buffer.toString('base64')}`, { folder: 'housing' });
+            images.push(result.secure_url);
+        }
+        const housing = new Housing({
+            title,
+            description,
+            price,
+            location,
+            images,
+            landlord: req.userData.userId,
+            amenities: amenities.split(','),
+            bathrooms,
+            bedrooms,
+            propertyType,
+        });
+        await housing.save();
+        res.status(201).json({ message: 'Logement créé avec succès !', housing });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des logements.' });
+        res.status(500).json({ message: 'Une erreur est survenue lors de la création du logement.', error: error.message });
     }
 });
 
+// Récupérer tous les logements
+app.get('/api/housing', async (req, res) => {
+    try {
+        const housings = await Housing.find().populate('landlord', 'name email');
+        res.status(200).json({ housings });
+    } catch (error) {
+        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des logements.', error: error.message });
+    }
+});
+
+// Récupérer un logement par ID
 app.get('/api/housing/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const housing = await Housing.findById(id).populate('landlord', 'name');
+        const housing = await Housing.findById(id).populate('landlord', 'name email');
         if (!housing) {
             return res.status(404).json({ message: 'Logement non trouvé.' });
         }
         res.status(200).json({ housing });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération du logement.' });
+        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération du logement.', error: error.message });
     }
 });
 
-app.post('/api/housing', authMiddleware, upload.array('images', 5), async (req, res) => {
+// Gérer les logements d'un propriétaire
+app.get('/api/manage-housing', authMiddleware, async (req, res) => {
     try {
-        const { title, description, price, address } = req.body;
-        const landlordId = req.userData.userId;
-        const images = req.files;
-
-        if (!title || !description || !price || !address || !images) {
-            return res.status(400).json({ message: 'Tous les champs et au moins une image sont requis.' });
-        }
-
-        const imageUploadPromises = images.map(file => {
-            return new Promise((resolve, reject) => {
-                cloudinary.uploader.upload_stream(
-                    { folder: 'g-house' },
-                    (error, result) => {
-                        if (error) {
-                            console.error("Cloudinary upload error:", error);
-                            return reject(error);
-                        }
-                        resolve(result.secure_url);
-                    }
-                ).end(file.buffer);
-            });
-        });
-
-        const imageUrls = await Promise.all(imageUploadPromises);
-
-        const newHousing = new Housing({
-            title,
-            description,
-            price,
-            address,
-            images: imageUrls,
-            landlord: landlordId
-        });
-
-        await newHousing.save();
-        res.status(201).json({ message: 'Logement créé avec succès !', housing: newHousing });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la création du logement.' });
-    }
-});
-
-app.get('/api/landlord-housing', authMiddleware, async (req, res) => {
-    try {
-        const landlordId = req.userData.userId;
-        const housings = await Housing.find({ landlord: landlordId });
+        const userId = req.userData.userId;
+        const housings = await Housing.find({ landlord: userId });
         res.status(200).json({ housings });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des logements du propriétaire.' });
+        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des logements.', error: error.message });
     }
 });
 
+// Mettre à jour un logement
 app.put('/api/housing/:id', authMiddleware, upload.array('images', 5), async (req, res) => {
     try {
         const { id } = req.params;
-        const updates = req.body;
-        const landlordId = req.userData.userId;
-
+        const { title, description, price, location, bathrooms, bedrooms, amenities, propertyType } = req.body;
         const housing = await Housing.findById(id);
 
         if (!housing) {
             return res.status(404).json({ message: 'Logement non trouvé.' });
         }
-
-        if (housing.landlord.toString() !== landlordId) {
+        if (housing.landlord.toString() !== req.userData.userId) {
             return res.status(403).json({ message: 'Accès refusé. Vous n\'êtes pas le propriétaire de ce logement.' });
         }
 
+        const updates = { title, description, price, location, bathrooms, bedrooms, amenities: amenities.split(','), propertyType };
+
         if (req.files && req.files.length > 0) {
-            const imageUploadPromises = req.files.map(file => {
-                return new Promise((resolve, reject) => {
-                    cloudinary.uploader.upload_stream(
-                        { folder: 'g-house' },
-                        (error, result) => {
-                            if (error) {
-                                console.error("Cloudinary upload error:", error);
-                                return reject(error);
-                            }
-                            resolve(result.secure_url);
-                        }
-                    ).end(file.buffer);
-                });
-            });
-            const imageUrls = await Promise.all(imageUploadPromises);
-            updates.images = [...housing.images, ...imageUrls];
+            const newImages = [];
+            for (const file of req.files) {
+                const result = await cloudinary.uploader.upload(`data:image/png;base64,${file.buffer.toString('base64')}`, { folder: 'housing' });
+                newImages.push(result.secure_url);
+            }
+            updates.images = newImages;
         }
 
-        Object.assign(housing, updates);
-        await housing.save();
-        res.status(200).json({ message: 'Logement mis à jour avec succès !', housing });
+        const updatedHousing = await Housing.findByIdAndUpdate(id, updates, { new: true });
+        res.status(200).json({ message: 'Logement mis à jour avec succès !', housing: updatedHousing });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la mise à jour du logement.' });
+        res.status(500).json({ message: 'Une erreur est survenue lors de la mise à jour du logement.', error: error.message });
     }
 });
 
+// Supprimer un logement
 app.delete('/api/housing/:id', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
-        const landlordId = req.userData.userId;
-
         const housing = await Housing.findById(id);
+
         if (!housing) {
             return res.status(404).json({ message: 'Logement non trouvé.' });
         }
-        if (housing.landlord.toString() !== landlordId) {
+        if (housing.landlord.toString() !== req.userData.userId) {
             return res.status(403).json({ message: 'Accès refusé. Vous n\'êtes pas le propriétaire de ce logement.' });
         }
+
         await Housing.findByIdAndDelete(id);
         res.status(200).json({ message: 'Logement supprimé avec succès !' });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la suppression du logement.' });
+        res.status(500).json({ message: 'Une erreur est survenue lors de la suppression du logement.', error: error.message });
     }
 });
 
-// Routes de gestion des conversations
-app.post('/api/conversations/start', authMiddleware, async (req, res) => {
-    try {
-        const { recipientId, housingId } = req.body;
-        const senderId = req.userData.userId;
-        const participants = [senderId, recipientId];
-
-        let conversation = await Conversation.findOne({
-            participants: { $all: participants },
-            housing: housingId
-        });
-
-        if (!conversation) {
-            conversation = new Conversation({ participants, housing: housingId });
-            await conversation.save();
-        }
-
-        res.status(200).json({ message: 'Conversation créée ou trouvée avec succès.', conversationId: conversation._id });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors du démarrage de la conversation.' });
-    }
-});
-
-app.get('/api/conversations', authMiddleware, async (req, res) => {
-    try {
-        const userId = req.userData.userId;
-        const conversations = await Conversation.find({ participants: userId }).populate('participants', 'name');
-        res.status(200).json({ conversations });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des conversations.' });
-    }
-});
-
-app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const userId = req.userData.userId;
-        const conversation = await Conversation.findById(id);
-        if (!conversation || !conversation.participants.includes(userId)) {
-            return res.status(403).json({ message: 'Accès refusé. Vous ne faites pas partie de cette conversation.' });
-        }
-        const messages = await Message.find({ conversation: id }).populate('sender', 'name');
-        res.status(200).json({ messages });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des messages.' });
-    }
-});
-
-// Routes de gestion des réservations
+// Routes pour les réservations (Bookings)
+// Créer une réservation
 app.post('/api/bookings', authMiddleware, async (req, res) => {
     try {
-        const { housing, checkInDate, checkOutDate } = req.body;
-        const tenant = req.userData.userId;
-
-        const newBooking = new Booking({
-            housing,
-            tenant,
-            checkInDate,
-            checkOutDate
+        const { housingId, checkIn, checkOut } = req.body;
+        const existingBooking = await Booking.findOne({
+            housing: housingId,
+            $or: [
+                { checkIn: { $lt: new Date(checkOut) }, checkOut: { $gt: new Date(checkIn) } }
+            ]
         });
-        await newBooking.save();
-        res.status(201).json({ message: 'Réservation créée avec succès !', booking: newBooking });
+
+        if (existingBooking) {
+            return res.status(400).json({ message: 'Ce logement est déjà réservé pour ces dates.' });
+        }
+
+        const booking = new Booking({
+            housing: housingId,
+            tenant: req.userData.userId,
+            checkIn: new Date(checkIn),
+            checkOut: new Date(checkOut)
+        });
+
+        await booking.save();
+        res.status(201).json({ message: 'Réservation créée avec succès !', booking });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Une erreur est survenue lors de la création de la réservation.' });
+        res.status(500).json({ message: 'Une erreur est survenue lors de la création de la réservation.', error: error.message });
     }
 });
 
-app.get('/api/my-bookings', authMiddleware, async (req, res) => {
+// Récupérer les réservations de l'utilisateur
+app.get('/api/bookings', authMiddleware, async (req, res) => {
     try {
         const tenantId = req.userData.userId;
         const bookings = await Booking.find({ tenant: tenantId }).populate('housing');
@@ -373,6 +297,7 @@ app.get('/api/my-bookings', authMiddleware, async (req, res) => {
     }
 });
 
+// Route pour l'envoi d'e-mails
 app.post('/api/send-email', authMiddleware, async (req, res) => {
     try {
         const { to, subject, text } = req.body;
@@ -399,6 +324,130 @@ app.post('/api/send-email', authMiddleware, async (req, res) => {
     }
 });
 
+// Routes pour les documents de profil
+app.post('/api/profile-docs', authMiddleware, upload.single('document'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: 'Veuillez télécharger un document.' });
+        }
+        const result = await cloudinary.uploader.upload(`data:application/pdf;base64,${req.file.buffer.toString('base64')}`, { folder: 'profile-docs', resource_type: 'raw' });
+        const newDoc = new ProfileDoc({
+            userId: req.userData.userId,
+            documentUrl: result.secure_url,
+            documentType: req.body.documentType,
+        });
+        await newDoc.save();
+        res.status(201).json({ message: 'Document de profil téléchargé avec succès !', document: newDoc });
+    } catch (error) {
+        res.status(500).json({ message: 'Une erreur est survenue lors du téléchargement du document.', error: error.message });
+    }
+});
+
+app.get('/api/profile-docs', authMiddleware, async (req, res) => {
+    try {
+        const docs = await ProfileDoc.find({ userId: req.userData.userId });
+        res.status(200).json({ docs });
+    } catch (error) {
+        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des documents.', error: error.message });
+    }
+});
+
+app.delete('/api/profile-docs/:id', authMiddleware, async (req, res) => {
+    try {
+        const doc = await ProfileDoc.findById(req.params.id);
+        if (!doc) {
+            return res.status(404).json({ message: 'Document non trouvé.' });
+        }
+        if (doc.userId.toString() !== req.userData.userId) {
+            return res.status(403).json({ message: 'Accès refusé. Ce document ne vous appartient pas.' });
+        }
+        await ProfileDoc.findByIdAndDelete(req.params.id);
+        res.status(200).json({ message: 'Document supprimé avec succès !' });
+    } catch (error) {
+        res.status(500).json({ message: 'Une erreur est survenue lors de la suppression du document.', error: error.message });
+    }
+});
+
+// Routes de messagerie
+// Démarrer une conversation
+app.post('/api/conversations/start', authMiddleware, async (req, res) => {
+    try {
+        const { recipientId } = req.body;
+        const senderId = req.userData.userId;
+        const existingConversation = await Conversation.findOne({
+            participants: { $all: [senderId, recipientId] }
+        });
+        if (existingConversation) {
+            return res.status(200).json({ conversationId: existingConversation._id, message: 'Conversation existante récupérée.' });
+        }
+        const newConversation = new Conversation({
+            participants: [senderId, recipientId],
+        });
+        await newConversation.save();
+        res.status(201).json({ conversationId: newConversation._id, message: 'Nouvelle conversation démarrée.' });
+    } catch (error) {
+        res.status(500).json({ message: 'Une erreur est survenue lors du démarrage de la conversation.', error: error.message });
+    }
+});
+
+// Récupérer les conversations de l'utilisateur
+app.get('/api/conversations', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.userData.userId;
+        const conversations = await Conversation.find({ participants: userId }).populate('participants', 'name');
+        res.status(200).json({ conversations });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des conversations.' });
+    }
+});
+
+// Récupérer les messages d'une conversation
+app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.userData.userId;
+        const conversation = await Conversation.findById(id);
+        if (!conversation || !conversation.participants.includes(userId)) {
+            return res.status(403).json({ message: 'Accès refusé. Vous ne faites pas partie de cette conversation.' });
+        }
+        const messages = await Message.find({ conversation: id }).populate('sender', 'name');
+        res.status(200).json({ messages });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des messages.' });
+    }
+});
+
+// Envoyer un nouveau message
+app.post('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { content } = req.body;
+        const senderId = req.userData.userId;
+
+        const conversation = await Conversation.findById(id);
+        if (!conversation || !conversation.participants.includes(senderId)) {
+            return res.status(403).json({ message: 'Accès refusé. Vous ne pouvez pas envoyer de message à cette conversation.' });
+        }
+
+        const newMessage = new Message({
+            conversation: id,
+            sender: senderId,
+            content,
+        });
+
+        await newMessage.save();
+
+        io.to(id).emit('receive_message', newMessage);
+
+        res.status(201).json({ message: 'Message envoyé avec succès !', newMessage });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Une erreur est survenue lors de l\'envoi du message.' });
+    }
+});
+
 // Route pour la documentation de l'API
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
@@ -408,6 +457,6 @@ app.get('/', (req, res) => {
 });
 
 // Le serveur démarre et écoute sur le port défini
-server.listen(PORT, () => {
+httpServer.listen(PORT, () => {
     console.log(`Le serveur écoute sur le port ${PORT}`);
 });
