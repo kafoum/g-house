@@ -1,26 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { Link } from 'react-router-dom';
+import api from '../api/api';
+import { jwtDecode } from 'jwt-decode';
 
 const ConversationsList = () => {
     const [conversations, setConversations] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [user, setUser] = useState(null);
 
     useEffect(() => {
-        fetchConversations();
+        const token = localStorage.getItem('token');
+        if (token) {
+            try {
+                const decodedToken = jwtDecode(token);
+                setUser(decodedToken);
+                fetchConversations(token);
+            } catch (err) {
+                console.error("Token de connexion invalide", err);
+                setError("La session a expiré. Veuillez vous reconnecter.");
+                setLoading(false);
+            }
+        } else {
+            setLoading(false);
+            setError('Vous devez être connecté pour voir vos conversations.');
+        }
     }, []);
 
-    const fetchConversations = async () => {
+    const fetchConversations = async (token) => {
         setLoading(true);
-        const token = localStorage.getItem('token');
-        if (!token) {
-            setError("Vous n'êtes pas connecté.");
-            setLoading(false);
-            return;
-        }
         try {
-            const response = await axios.get('https://g-house-api.onrender.com/api/conversations', {
+            const response = await api.get('/conversations', {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -34,23 +44,36 @@ const ConversationsList = () => {
         }
     };
 
-    const user = JSON.parse(localStorage.getItem('user'));
+    if (loading) {
+        return <p className="text-center text-lg mt-8 text-gray-600">Chargement des conversations...</p>;
+    }
 
-    if (loading) return <p className="text-center text-gray-500">Chargement des conversations...</p>;
-    if (error) return <p className="text-center text-red-500">{error}</p>;
-    if (conversations.length === 0) return <p className="text-center text-gray-500">Vous n'avez pas encore de conversations.</p>;
+    if (error) {
+        return <p className="text-center text-lg mt-8 text-red-500">{error}</p>;
+    }
+
+    if (conversations.length === 0) {
+        return <p className="text-center text-lg mt-8 text-gray-500">Vous n'avez pas encore de conversations.</p>;
+    }
 
     return (
-        <div className="p-4 md:p-8 max-w-lg mx-auto bg-white rounded-lg shadow-md">
-            <h2 className="text-2xl font-bold mb-4 text-center">Mes Conversations</h2>
-            <ul className="space-y-2">
+        <div className="container mx-auto p-4">
+            <h2 className="text-3xl font-bold mb-6 text-gray-800 text-center">Mes Conversations</h2>
+            <ul className="bg-white rounded-lg shadow-xl overflow-hidden divide-y divide-gray-200">
                 {conversations.map(conv => {
-                    const otherParticipant = conv.participants.find(p => p._id !== user.id);
-                    const displayName = otherParticipant ? otherParticipant.name : 'Utilisateur inconnu';
+                    const otherParticipant = conv.participants.find(p => p._id !== user.userId);
                     return (
                         <li key={conv._id}>
-                            <Link to={`/conversations/${conv._id}`} className="block p-3 border rounded-lg hover:bg-gray-100 transition-colors duration-200">
-                                Conversation avec <span className="font-semibold">{displayName}</span>
+                            <Link
+                                to={`/conversations/${conv._id}`}
+                                className="block p-4 hover:bg-gray-50 transition-colors duration-200"
+                            >
+                                <div className="font-semibold text-lg text-gray-900">
+                                    Conversation avec {otherParticipant ? otherParticipant.name : 'Utilisateur inconnu'}
+                                </div>
+                                <div className="text-sm text-gray-500 mt-1">
+                                    {conv.housing?.title || 'Logement non spécifié'}
+                                </div>
                             </Link>
                         </li>
                     );
