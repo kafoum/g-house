@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
+import api from './../api/api'; // Importez l'instance Axios personnalisée
 
 const EditHousing = () => {
   const { id } = useParams();
@@ -17,21 +17,28 @@ const EditHousing = () => {
       country: '',
     },
     amenities: '',
-    images: '',
+    existingImages: [],
+    newImages: [],
   });
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
     const fetchHousingData = async () => {
-      const token = localStorage.getItem('token');
       try {
-        const response = await axios.get(`https://g-house-api.onrender.com/api/housing/${id}`);
+        const response = await api.get(`/housing/${id}`);
         const housing = response.data.housing;
         
         // S'assurer que seul le propriétaire de l'annonce peut la modifier
-        const user = JSON.parse(localStorage.getItem('user'));
-        if (!user || user.id !== housing.landlord) {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setMessage("Vous n'êtes pas autorisé à modifier cette annonce.");
+          setTimeout(() => navigate('/housing'), 2000);
+          return;
+        }
+
+        const user = JSON.parse(atob(token.split('.')[1]));
+        if (!user || user.userId !== housing.landlord) {
           setMessage("Vous n'êtes pas autorisé à modifier cette annonce.");
           setTimeout(() => navigate('/housing'), 2000);
           return;
@@ -44,12 +51,13 @@ const EditHousing = () => {
           price: housing.price,
           location: housing.location,
           amenities: housing.amenities.join(', '),
-          images: housing.images.join(', '),
+          existingImages: housing.images,
+          newImages: [],
         });
-        setLoading(false);
-      } catch (error) {
-        setMessage('Erreur lors du chargement des données de l\'annonce.');
-        console.error(error);
+      } catch (err) {
+        setMessage('Impossible de charger les données du logement.');
+        console.error(err);
+      } finally {
         setLoading(false);
       }
     };
@@ -72,65 +80,82 @@ const EditHousing = () => {
     }
   };
 
+  const handleImageChange = (e) => {
+    setFormData(prev => ({
+      ...prev,
+      newImages: Array.from(e.target.files),
+    }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem('token');
+    setLoading(true);
+    setMessage('');
+
+    const data = new FormData();
+    for (const key in formData) {
+      if (key === 'location') {
+        data.append('location', JSON.stringify(formData.location));
+      } else if (key === 'amenities') {
+        data.append('amenities', formData.amenities);
+      } else if (key === 'existingImages') {
+        data.append('existingImages', JSON.stringify(formData.existingImages));
+      } else if (key === 'newImages') {
+        formData.newImages.forEach(image => data.append('images', image));
+      } else {
+        data.append(key, formData[key]);
+      }
+    }
+
     try {
-      const amenitiesArray = formData.amenities.split(',').map(item => item.trim());
-      const imagesArray = formData.images.split(',').map(item => item.trim());
-
-      const dataToSend = {
-        ...formData,
-        amenities: amenitiesArray,
-        images: imagesArray,
-      };
-
-      await axios.put(`https://g-house-api.onrender.com/api/housing/${id}`, dataToSend, {
+      await api.put(`/housing/${id}`, data, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
         },
       });
-
       setMessage('Annonce mise à jour avec succès !');
-      setTimeout(() => {
-        navigate(`/housing/${id}`); // Redirige vers l'annonce mise à jour
-      }, 1500);
+      setLoading(false);
+      setTimeout(() => navigate('/manage-housing'), 2000);
     } catch (error) {
-      setMessage(error.response?.data?.message || 'Erreur lors de la mise à jour de l\'annonce.');
+      setMessage('Échec de la mise à jour de l\'annonce. Veuillez réessayer.');
       console.error(error);
+      setLoading(false);
     }
   };
 
-  if (loading) return <p>Chargement du formulaire...</p>;
-  if (message && message.includes("pas autorisé")) return <p>{message}</p>;
+  if (loading) {
+    return <div>Chargement des données...</div>;
+  }
+  if (message) {
+    return <div>{message}</div>;
+  }
 
   return (
-    <div>
-      <h2>Modifier l'annonce</h2>
-      <form onSubmit={handleSubmit}>
+    <div className="container mx-auto p-4 max-w-lg">
+      <h2 className="text-3xl font-bold mb-6 text-center">Modifier une annonce</h2>
+      <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label htmlFor="title">Titre :</label>
           <input type="text" id="title" name="title" value={formData.title} onChange={handleChange} required />
         </div>
         <div>
           <label htmlFor="description">Description :</label>
-          <textarea id="description" name="description" value={formData.description} onChange={handleChange} required />
+          <textarea id="description" name="description" value={formData.description} onChange={handleChange} required></textarea>
         </div>
         <div>
           <label htmlFor="type">Type de logement :</label>
-          <select id="type" name="type" value={formData.type} onChange={handleChange}>
+          <select id="type" name="type" value={formData.type} onChange={handleChange} required>
             <option value="chambre">Chambre</option>
-            <option value="studio">Studio</option>
-            <option value="T1">T1</option>
-            <option value="T2">T2</option>
+            <option value="appartement">Appartement</option>
+            <option value="maison">Maison</option>
           </select>
         </div>
         <div>
-          <label htmlFor="price">Prix (€) :</label>
+          <label htmlFor="price">Prix par mois :</label>
           <input type="number" id="price" name="price" value={formData.price} onChange={handleChange} required />
         </div>
         
-        <h3>Localisation</h3>
+        <h3>Adresse</h3>
         <div>
           <label htmlFor="location.address">Adresse :</label>
           <input type="text" id="location.address" name="location.address" value={formData.location.address} onChange={handleChange} required />
@@ -152,12 +177,23 @@ const EditHousing = () => {
           <label htmlFor="amenities">Commodités (séparées par des virgules) :</label>
           <input type="text" id="amenities" name="amenities" value={formData.amenities} onChange={handleChange} />
         </div>
+        
         <div>
-          <label htmlFor="images">URLs des images (séparées par des virgules) :</label>
-          <input type="text" id="images" name="images" value={formData.images} onChange={handleChange} />
+          <label>Images existantes :</label>
+          <div className="flex space-x-2 overflow-x-auto my-2">
+            {formData.existingImages.map((image, index) => (
+              <img key={index} src={image} alt={`Logement ${index + 1}`} className="w-24 h-24 object-cover rounded-lg" />
+            ))}
+          </div>
+        </div>
+        <div>
+          <label htmlFor="newImages">Ajouter de nouvelles images :</label>
+          <input type="file" id="newImages" name="newImages" multiple onChange={handleImageChange} accept="image/*" />
         </div>
         
-        <button type="submit">Mettre à jour l'annonce</button>
+        <button type="submit" disabled={loading}>
+          {loading ? 'Mise à jour en cours...' : 'Mettre à jour l\'annonce'}
+        </button>
       </form>
       {message && <p>{message}</p>}
     </div>
