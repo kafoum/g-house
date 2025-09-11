@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { jwtDecode } from 'jwt-decode';
 
-const Login = ({ setAuthToken, setUserRole }) => {
+const Login = ({ setAuthToken, setUserRole, setUserName }) => {
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -19,25 +20,21 @@ const Login = ({ setAuthToken, setUserRole }) => {
     e.preventDefault();
     try {
       const response = await axios.post('https://g-house-api.onrender.com/api/login', formData);
-      const { token, user } = response.data;
-      
-      // Stocke le token et les informations de l'utilisateur dans le localStorage
+      const token = response.data.token; // Seul le token est renvoyé
+
       localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('userRole', user.role); // 🚨 AJOUT DE CETTE LIGNE
-
-      // Met à jour l'état d'authentification dans l'application principale
-      setAuthToken(token);
-      if (setUserRole) {
-        setUserRole(user.role); // 🚨 AJOUT DE CETTE LIGNE
-      }
       
-      setMessage('Connexion réussie !');
-
-      // Redirection après une connexion réussie
+      const decodedToken = jwtDecode(token); // On décode le token pour obtenir les infos
+      setAuthToken(token);
+      setUserRole(decodedToken.role);
+      setUserName(decodedToken.name);
+      
+      setMessage('Connexion réussie ! Redirection...');
+      
       setTimeout(() => {
-        navigate('/'); // Redirection vers la page d'accueil
+        navigate('/');
       }, 1500);
+      
     } catch (error) {
       setMessage(error.response?.data?.message || 'Email ou mot de passe incorrect.');
     }
@@ -49,11 +46,26 @@ const Login = ({ setAuthToken, setUserRole }) => {
       <form onSubmit={handleSubmit}>
         <div>
           <label htmlFor="email">Email :</label>
-          <input type="email" id="email" name="email" value={formData.email} onChange={handleChange} required />
+          <input
+            type="email"
+            id="email"
+            name="email"
+            value={formData.email}
+            onChange={handleChange}
+            required
+          />
         </div>
         <div>
           <label htmlFor="password">Mot de passe :</label>
-          <input type="password" id="password" name="password" value={formData.password} onChange={handleChange} required />
+          <input
+            type="password"
+            id="password"
+            name="password"
+            value={formData.password}
+            onChange={handleChange}
+            required
+            autoComplete="current-password"
+          />
         </div>
         <button type="submit">Se connecter</button>
       </form>
