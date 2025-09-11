@@ -1,11 +1,7 @@
-import React, { useState, useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
-import api from "../api/api";
-import { jwtDecode } from "jwt-decode";
-import io from "socket.io-client";
-
-// L'URL de votre serveur WebSocket. Remplacez-la par votre URL de production si nécessaire.
-const SOCKET_SERVER_URL = "http://localhost:5000";
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams } from 'react-router-dom';
+import axios from 'axios';
+import { jwtDecode } from 'jwt-decode';
 
 const Conversation = () => {
     const { id } = useParams();
@@ -13,115 +9,158 @@ const Conversation = () => {
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [user, setUser] = useState(null);
+    const [conversation, setConversation] = useState(null);
+    const ws = useRef(null);
     const messagesEndRef = useRef(null);
 
-    const token = localStorage.getItem('token');
-    let userId = null;
-    if (token) {
-        const decodedToken = jwtDecode(token);
-        userId = decodedToken.userId;
-    }
-
-    // Référence au socket pour éviter les recréations multiples
-    const socketRef = useRef(null);
-
-    useEffect(() => {
-        // Établit la connexion WebSocket
-        socketRef.current = io(SOCKET_SERVER_URL);
-
-        // Joint la conversation
-        socketRef.current.emit("joinConversation", id);
-
-        // Écoute les messages entrants
-        socketRef.current.on("receiveMessage", (message) => {
-            // Ajoute le nouveau message à l'état local
-            setMessages((prevMessages) => [...prevMessages, message]);
-        });
-
-        // Nettoie l'écouteur et la connexion lorsque le composant est démonté
-        return () => {
-            socketRef.current.disconnect();
-        };
-    }, [id]);
-
-    useEffect(() => {
-        // Charge les messages initiaux via une requête HTTP classique
-        fetchMessages();
-    }, [id]);
-
-    useEffect(() => {
-        // Fait défiler jusqu'au dernier message
-        scrollToBottom();
-    }, [messages]);
-
+    // Fonction pour scroller en bas des messages
     const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
 
-    const fetchMessages = async () => {
-        setLoading(true);
-        try {
-            const response = await api.get(`/conversations/${id}/messages`);
-            setMessages(response.data.messages);
-        } catch (err) {
-            setError('Impossible de charger les messages. Veuillez réessayer.');
-            console.error(err);
-        } finally {
-            setLoading(false);
+    useEffect(scrollToBottom, [messages]);
+
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            try {
+                const decodedToken = jwtDecode(token);
+                setUser(decodedToken);
+            } catch (err) {
+                console.error("Invalid token:", err);
+            }
         }
-    };
+        
+        // Obtenir l'URL de l'API, en gérant le cas où elle n'est pas définie
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+        
+        // Initialisation de la connexion WebSocket
+        // Assurez-vous d'utiliser 'ws://' ou 'wss://' selon votre environnement
+        const WS_URL = API_URL.startsWith('https') ? API_URL.replace('https', 'wss') : API_URL.replace('http', 'ws');
+        ws.current = new WebSocket(WS_URL);
 
-    const handleSendMessage = async (e) => {
+        ws.current.onopen = () => {
+            console.log('Connexion WebSocket établie.');
+            // Envoyer le token d'authentification
+            ws.current.send(JSON.stringify({ type: 'auth', token }));
+        };
+
+        ws.current.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'message') {
+                // Ajouter le nouveau message à l'état local
+                setMessages(prevMessages => [...prevMessages, data.message]);
+            }
+        };
+
+        ws.current.onclose = () => {
+            console.log('Connexion WebSocket fermée.');
+        };
+
+        ws.current.onerror = (err) => {
+            console.error('Erreur WebSocket:', err);
+        };
+
+        return () => {
+            if (ws.current) {
+                ws.current.close();
+            }
+        };
+
+    }, []);
+
+    useEffect(() => {
+        const fetchMessagesAndConversation = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                if (!token) {
+                    setError('Vous devez être connecté pour voir les messages.');
+                    setLoading(false);
+                    return;
+                }
+                
+                const config = {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                };
+                
+                // Obtenir l'URL de l'API
+                const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+                // Récupérer les messages initiaux
+                const messagesRes = await axios.get(`${API_URL}/api/conversations/${id}/messages`, config);
+                setMessages(messagesRes.data.messages);
+                
+                // Récupérer les détails de la conversation
+                // const convRes = await axios.get(`${API_URL}/api/conversations/${id}`, config);
+                // setConversation(convRes.data.conversation);
+                
+                setLoading(false);
+            } catch (err) {
+                setError('Erreur lors du chargement des messages.');
+                console.error(err);
+                setLoading(false);
+            }
+        };
+
+        if (id) {
+            fetchMessagesAndConversation();
+        }
+    }, [id]);
+
+    const handleSendMessage = (e) => {
         e.preventDefault();
-        if (newMessage.trim() === '') return;
-
-        try {
-            // Émet le message via WebSocket au lieu de faire une requête HTTP
-            const messageData = {
-                conversationId: id,
-                senderId: userId,
-                content: newMessage,
-            };
-            socketRef.current.emit("sendMessage", messageData);
-
-            setNewMessage('');
-        } catch (err) {
-            setError('Erreur lors de l\'envoi du message.');
-            console.error(err);
+        if (newMessage.trim() === '' || !ws.current || ws.current.readyState !== WebSocket.OPEN) {
+            return;
         }
+
+        // Envoyer le message via WebSocket
+        ws.current.send(JSON.stringify({
+            type: 'message',
+            content: newMessage,
+            conversationId: id,
+            token: localStorage.getItem('token')
+        }));
+        
+        setNewMessage('');
     };
     
-    if (loading) return <p className="text-center text-lg mt-8 text-gray-600">Chargement des messages...</p>;
-    if (error) return <p className="text-center text-lg mt-8 text-red-500">{error}</p>;
-    
+    if (loading) return <div className="text-center text-xl font-medium text-gray-700">Chargement des messages...</div>;
+    if (error) return <div className="text-center text-red-500 font-bold">{error}</div>;
+
     return (
-        <div className="container mx-auto p-4 flex flex-col h-full">
-            <h2 className="text-3xl font-bold mb-6 text-gray-800">Conversation</h2>
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-100 rounded-lg shadow-inner mb-4 max-h-[70vh]">
-                {messages.length === 0 ? (
-                    <p className="text-center text-gray-500">Aucun message dans cette conversation.</p>
-                ) : (
-                    messages.map(msg => (
-                        <div key={msg._id} className={`flex ${msg.sender._id === userId ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`p-3 rounded-lg max-w-xs md:max-w-md lg:max-w-lg ${msg.sender._id === userId ? 'bg-blue-500 text-white' : 'bg-gray-300 text-gray-800'}`}>
-                                <strong className="block text-sm mb-1">{msg.sender.name}:</strong>
-                                <p className="text-base break-words">{msg.content}</p>
-                            </div>
+        <div className="flex flex-col h-[80vh] bg-white rounded-xl shadow-lg p-6 max-w-2xl mx-auto">
+            <h1 className="text-2xl font-bold text-gray-800 mb-4">
+                Conversation
+            </h1>
+            <div className="flex-1 overflow-y-auto space-y-4 pr-2 mb-4">
+                {messages.map((msg) => (
+                    <div
+                        key={msg._id}
+                        className={`flex ${msg.sender._id === user?.userId ? 'justify-end' : 'justify-start'}`}
+                    >
+                        <div
+                            className={`p-3 rounded-xl max-w-[70%] shadow-sm ${msg.sender._id === user?.userId ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-800'}`}
+                        >
+                            <p className="font-semibold text-sm mb-1">{msg.sender.name}</p>
+                            <p className="text-sm">{msg.content}</p>
                         </div>
-                    ))
-                )}
+                    </div>
+                ))}
                 <div ref={messagesEndRef} />
             </div>
-            <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
+            <form onSubmit={handleSendMessage} className="flex gap-2 mt-4">
                 <input
                     type="text"
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder="Écrivez un message..."
-                    required
-                    className="flex-1 p-3 rounded-full border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Écrivez votre message..."
+                    className="flex-1 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <button type="submit" className="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 transition-colors duration-200">
+                <button
+                    type="submit"
+                    className="p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition duration-300"
+                >
                     Envoyer
                 </button>
             </form>
