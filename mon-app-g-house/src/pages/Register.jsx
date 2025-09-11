@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import api from './../api/api';
+import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
 const Register = () => {
@@ -7,11 +7,10 @@ const Register = () => {
     name: '',
     email: '',
     password: '',
-    role: 'tenant',
+    role: 'tenant', // Valeur par défaut
   });
 
   const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleChange = (e) => {
@@ -20,95 +19,44 @@ const Register = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    setMessage('');
-
     try {
-      await api.post('/auth/register', formData);
-      setMessage('Inscription réussie ! Vous pouvez maintenant vous connecter.');
+      const response = await axios.post('https://g-house-api.onrender.com/api/register', formData);
+      setMessage(response.data.message);
+      // Redirection après une inscription réussie
       setTimeout(() => {
         navigate('/login');
       }, 2000);
     } catch (error) {
-      console.error(error);
-      setMessage(error.response?.data?.message || 'Échec de l\'inscription. Veuillez réessayer.');
-    } finally {
-      setLoading(false);
+      setMessage(error.response?.data?.message || 'Erreur lors de l\'inscription.');
     }
   };
 
   return (
-    <div className="flex justify-center items-center h-screen bg-gray-100">
-      <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-        <h2 className="text-3xl font-bold mb-6 text-center text-gray-800">Inscription</h2>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-gray-700 font-medium mb-2" htmlFor="name">
-              Nom
-            </label>
-            <input
-              type="text"
-              name="name"
-              id="name"
-              value={formData.name}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-gray-700 font-medium mb-2" htmlFor="email">
-              Email
-            </label>
-            <input
-              type="email"
-              name="email"
-              id="email"
-              value={formData.email}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-gray-700 font-medium mb-2" htmlFor="password">
-              Mot de passe
-            </label>
-            <input
-              type="password"
-              name="password"
-              id="password"
-              value={formData.password}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-gray-700 font-medium mb-2" htmlFor="role">
-              Rôle
-            </label>
-            <select
-              name="role"
-              id="role"
-              value={formData.role}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="tenant">Locataire</option>
-              <option value="landlord">Propriétaire</option>
-            </select>
-          </div>
-          <button
-            type="submit"
-            className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors duration-300"
-            disabled={loading}
-          >
-            {loading ? 'Inscription en cours...' : 'Inscription'}
-          </button>
-        </form>
-        {message && <p className="mt-4 text-center text-red-500">{message}</p>}
-      </div>
+    <div>
+      <h2>Inscription</h2>
+      <form onSubmit={handleSubmit}>
+        <div>
+          <label htmlFor="name">Nom :</label>
+          <input type="text" id="name" name="name" value={formData.name} onChange={handleChange} required />
+        </div>
+        <div>
+          <label htmlFor="email">Email :</label>
+          <input type="email" id="email" name="email" value={formData.email} onChange={handleChange} required />
+        </div>
+        <div>
+          <label htmlFor="password">Mot de passe :</label>
+          <input type="password" id="password" name="password" value={formData.password} onChange={handleChange} required />
+        </div>
+        <div>
+          <label htmlFor="role">Rôle :</label>
+          <select id="role" name="role" value={formData.role} onChange={handleChange}>
+            <option value="tenant">Locataire</option>
+            <option value="landlord">Propriétaire</option>
+          </select>
+        </div>
+        <button type="submit">S'inscrire</button>
+      </form>
+      {message && <p>{message}</p>}
     </div>
   );
 };
