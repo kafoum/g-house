@@ -22,7 +22,6 @@ const Register = () => {
     try {
       const response = await axios.post('https://g-house-api.onrender.com/api/register', formData);
       setMessage(response.data.message);
-      // Redirection après une inscription réussie
       setTimeout(() => {
         navigate('/login');
       }, 2000);
@@ -45,7 +44,15 @@ const Register = () => {
         </div>
         <div>
           <label htmlFor="password">Mot de passe :</label>
-          <input type="password" id="password" name="password" value={formData.password} onChange={handleChange} required />
+          <input
+            type="password"
+            id="password"
+            name="password"
+            value={formData.password}
+            onChange={handleChange}
+            required
+            autoComplete="new-password" // <-- Ajouté ici
+          />
         </div>
         <div>
           <label htmlFor="role">Rôle :</label>
