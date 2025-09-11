@@ -15,7 +15,7 @@ const ConversationsList = () => {
             try {
                 const decodedToken = jwtDecode(token);
                 setUser(decodedToken);
-                fetchConversations(token);
+                fetchConversations();
             } catch (err) {
                 console.error("Token de connexion invalide", err);
                 setError("La session a expiré. Veuillez vous reconnecter.");
@@ -27,14 +27,10 @@ const ConversationsList = () => {
         }
     }, []);
 
-    const fetchConversations = async (token) => {
+    const fetchConversations = async () => {
         setLoading(true);
         try {
-            const response = await api.get('/conversations', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
+            const response = await api.get('/conversations');
             setConversations(response.data.conversations);
         } catch (err) {
             setError('Impossible de charger les conversations. Veuillez réessayer plus tard.');

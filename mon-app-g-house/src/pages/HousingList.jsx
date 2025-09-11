@@ -1,89 +1,73 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { Link } from 'react-router-dom';
+import api from './../api/api'; // Importez l'instance Axios personnalisée
 
 const HousingList = () => {
-  const [housing, setHousing] = useState([]);
-  const [filters, setFilters] = useState({ city: '', price_min: '', price_max: '', type: '' });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+    const [housing, setHousing] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(() => {
-    fetchHousing();
-  }, [filters]);
+    useEffect(() => {
+        const fetchHousing = async () => {
+            try {
+                const response = await api.get('/housing');
+                setHousing(response.data.housings);
+            } catch (err) {
+                setError('Impossible de charger les logements.');
+                console.error(err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchHousing();
+    }, []);
 
-  const fetchHousing = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await axios.get('https://g-house-api.onrender.com/api/housing', {
-        params: filters,
-      });
-      setHousing(response.data.housing);
-    } catch (err) {
-      setError('Impossible de récupérer les logements. Veuillez réessayer plus tard.');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const filteredHousing = housing.filter(item =>
+        item.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.location.toLowerCase().includes(searchTerm.toLowerCase())
+    );
 
-  const handleChange = (e) => {
-    setFilters({ ...filters, [e.target.name]: e.target.value });
-  };
+    if (loading) return <p className="text-center text-gray-500 mt-10">Chargement des logements...</p>;
+    if (error) return <p className="text-center text-red-500 mt-10">{error}</p>;
 
-  return (
-    <div>
-      <h1>Logements disponibles</h1>
+    return (
+        <div className="container mx-auto px-4 py-8">
+            <h1 className="text-4xl font-bold text-gray-800 mb-6 text-center">Tous les Logements Disponibles</h1>
+            <div className="flex justify-center mb-8">
+                <input
+                    type="text"
+                    placeholder="Rechercher par titre ou ville..."
+                    className="w-full max-w-lg p-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
 
-      {/* Formulaire de filtres */}
-      <div className="filters-container">
-        <input
-          type="text"
-          name="city"
-          placeholder="Ville"
-          value={filters.city}
-          onChange={handleChange}
-        />
-        <input
-          type="number"
-          name="price_min"
-          placeholder="Prix min."
-          value={filters.price_min}
-          onChange={handleChange}
-        />
-        <input
-          type="number"
-          name="price_max"
-          placeholder="Prix max."
-          value={filters.price_max}
-          onChange={handleChange}
-        />
-        <select name="type" value={filters.type} onChange={handleChange}>
-          <option value="">Tous les types</option>
-          <option value="apartment">Appartement</option>
-          <option value="house">Maison</option>
-          <option value="studio">Studio</option>
-        </select>
-      </div>
-
-      {loading && <p>Chargement des logements...</p>}
-      {error && <p className="error">{error}</p>}
-
-      {!loading && housing.length === 0 && <p>Aucun logement ne correspond à vos critères de recherche.</p>}
-
-      <div className="housing-grid">
-        {housing.map((item) => (
-          <div key={item._id} className="housing-card">
-            <img src={item.images[0] || 'placeholder.jpg'} alt={`Image de ${item.title}`} />
-            <h3><Link to={`/housing/${item._id}`}>{item.title}</Link></h3>
-            <p>{item.location.city}</p>
-            <p>{item.price} € / mois</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+                {filteredHousing.length > 0 ? (
+                    filteredHousing.map(item => (
+                        <div key={item._id} className="bg-white rounded-xl shadow-lg hover:shadow-2xl transition-shadow duration-300 overflow-hidden">
+                            <Link to={`/housing/${item._id}`}>
+                                <img
+                                    src={item.images[0] || 'https://via.placeholder.com/400x300.png?text=Pas+d\'image'}
+                                    alt={item.title}
+                                    className="w-full h-48 object-cover"
+                                />
+                                <div className="p-5">
+                                    <h2 className="text-2xl font-semibold text-gray-900 mb-2">{item.title}</h2>
+                                    <p className="text-gray-600 mb-2 truncate">{item.location.city}</p>
+                                    <p className="text-blue-600 font-bold text-xl">{item.price} € / mois</p>
+                                </div>
+                            </Link>
+                        </div>
+                    ))
+                ) : (
+                    <p className="text-center text-gray-500">Aucun logement trouvé.</p>
+                )}
+            </div>
+        </div>
+    );
 };
 
 export default HousingList;

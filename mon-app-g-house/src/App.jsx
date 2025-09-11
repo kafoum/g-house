@@ -60,18 +60,13 @@ const App = () => {
                 <div className="flex items-center space-x-4">
                     {authToken ? (
                         <>
-                            <span className="text-gray-700 font-medium">
-                                Bienvenue, {userName || 'Utilisateur'}
-                            </span>
+                            <span className="text-gray-700 font-medium"> Bienvenue, {userName || 'Utilisateur'} </span>
                             {userRole === 'landlord' && (
-                                <Link to="/manage-housing" className="bg-green-500 text-white py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300">
-                                    Gérer mes logements
+                                <Link to="/manage-housing" className="bg-green-500 text-white py-2 px-4 rounded-lg hover:bg-green-600 transition-colors duration-300">
+                                    Gérer mes annonces
                                 </Link>
                             )}
-                            <button
-                                onClick={handleLogout}
-                                className="bg-red-500 text-white py-2 px-4 rounded-lg hover:bg-red-600 transition duration-300"
-                            >
+                            <button onClick={handleLogout} className="bg-red-500 text-white py-2 px-4 rounded-lg hover:bg-red-600 transition-colors duration-300">
                                 Déconnexion
                             </button>
                         </>
@@ -80,16 +75,16 @@ const App = () => {
                             <Link to="/login" className="text-gray-600 hover:text-blue-600 transition duration-300">
                                 Connexion
                             </Link>
-                            <Link to="/register" className="bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-300">
+                            <Link to="/register" className="bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors duration-300">
                                 Inscription
                             </Link>
                         </>
                     )}
                 </div>
             </nav>
-            <main className="container mx-auto mt-8 p-4">
+            <main className="container mx-auto py-8">
                 <Routes>
-                    <Route path="/" element={<Home authToken={authToken} />} />
+                    <Route path="/" element={<Home authToken={authToken} userRole={userRole} userName={userName} />} />
                     <Route path="/register" element={<Register />} />
                     <Route path="/login" element={<Login setAuthToken={setAuthToken} setUserRole={setUserRole} setUserName={setUserName} />} />
                     <Route path="/housing" element={<HousingList />} />

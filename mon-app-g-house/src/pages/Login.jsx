@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import api from '../api/api'; // Importez l'instance Axios personnalisée
 
-const Login = ({ setAuthToken, setUserRole }) => {
+const Login = ({ setAuthToken, setUserRole, setUserName }) => {
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -18,19 +18,17 @@ const Login = ({ setAuthToken, setUserRole }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post('https://g-house-api.onrender.com/api/login', formData);
+      // Utilisez l'instance "api" pour la requête
+      const response = await api.post('/login', formData);
       const { token, user } = response.data;
       
       // Stocke le token et les informations de l'utilisateur dans le localStorage
       localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('userRole', user.role); // 🚨 AJOUT DE CETTE LIGNE
-
+      
       // Met à jour l'état d'authentification dans l'application principale
       setAuthToken(token);
-      if (setUserRole) {
-        setUserRole(user.role); // 🚨 AJOUT DE CETTE LIGNE
-      }
+      setUserRole(user.role);
+      setUserName(user.name);
       
       setMessage('Connexion réussie !');
 
