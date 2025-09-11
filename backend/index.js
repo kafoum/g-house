@@ -119,7 +119,13 @@ wss.on('connection', ws => {
 
 
 // Middleware CORS
-app.use(cors());
+// Configuration spécifique pour autoriser les requêtes depuis votre domaine Vercel
+const corsOptions = {
+    origin: 'https://g-house.vercel.app',
+    optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+
 
 // Middleware pour analyser les requêtes JSON
 app.use(express.json());
@@ -386,9 +392,6 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
         res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des messages.' });
     }
 });
-
-// Suppression de cette route car l'envoi de messages se fait désormais par WebSocket
-// app.post('/api/conversations/:id/messages', authMiddleware, async (req, res) => { ... });
 
 // Route pour la documentation de l'API
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
