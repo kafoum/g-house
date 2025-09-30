@@ -1,69 +1,94 @@
 import React, { useState } from 'react';
-import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext'; // 🔑 Importez le hook useAuth
+import './Auth.css';
 
 const Register = () => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
-    role: 'tenant', // Valeur par défaut
+    role: 'tenant'
   });
-
   const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  // 1. Utilisez le hook useAuth pour accéder à la fonction register
+  const { register } = useAuth(); 
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = async (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
+    setMessage('');
+    setLoading(true);
+
     try {
-      const response = await axios.post('https://g-house-api.onrender.com/api/register', formData);
-      setMessage(response.data.message);
+      // 2. Appelez la fonction register du contexte
+      await register(formData); 
+      
+      setMessage('Inscription réussie ! Vous pouvez maintenant vous connecter.');
+      
+      // 3. Redirigez l'utilisateur vers la page de connexion
       setTimeout(() => {
         navigate('/login');
-      }, 2000);
+      }, 2000); 
+
     } catch (error) {
-      setMessage(error.response?.data?.message || 'Erreur lors de l\'inscription.');
+      // Erreur de l'API (ex: email déjà utilisé)
+      const errorMessage = error.response?.data?.message || "Erreur lors de l'inscription. Veuillez réessayer.";
+      console.error("Erreur d'inscription:", errorMessage);
+      setMessage(errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div>
+    <div className="auth-container">
       <h2>Inscription</h2>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="name">Nom :</label>
-          <input type="text" id="name" name="name" value={formData.name} onChange={handleChange} required />
-        </div>
-        <div>
-          <label htmlFor="email">Email :</label>
-          <input type="email" id="email" name="email" value={formData.email} onChange={handleChange} required />
-        </div>
-        <div>
-          <label htmlFor="password">Mot de passe :</label>
-          <input
-            type="password"
-            id="password"
-            name="password"
-            value={formData.password}
-            onChange={handleChange}
-            required
-            autoComplete="new-password" // <-- Ajouté ici
-          />
-        </div>
-        <div>
-          <label htmlFor="role">Rôle :</label>
-          <select id="role" name="role" value={formData.role} onChange={handleChange}>
-            <option value="tenant">Locataire</option>
-            <option value="landlord">Propriétaire</option>
-          </select>
-        </div>
-        <button type="submit">S'inscrire</button>
+      <form onSubmit={handleRegister} className="auth-form">
+        <input
+          type="text"
+          name="name"
+          placeholder="Nom"
+          value={formData.name}
+          onChange={handleChange}
+          required
+        />
+        <input
+          type="email"
+          name="email"
+          placeholder="Email"
+          value={formData.email}
+          onChange={handleChange}
+          required
+        />
+        <input
+          type="password"
+          name="password"
+          placeholder="Mot de passe"
+          value={formData.password}
+          onChange={handleChange}
+          required
+        />
+        <label htmlFor="role-select">Je suis :</label>
+        <select id="role-select" name="role" value={formData.role} onChange={handleChange}>
+          <option value="tenant">Locataire</option>
+          <option value="landlord">Propriétaire</option>
+        </select>
+        <button type="submit" disabled={loading}>
+          {loading ? 'Inscription en cours...' : "S'inscrire"}
+        </button>
       </form>
-      {message && <p>{message}</p>}
+      {/* Afficher un message d'erreur ou de succès */}
+      {message && <p className={`message ${message.includes('réussie') ? 'success' : 'error'}`}>{message}</p>}
+      <p className="link-auth">
+        Déjà un compte ? <Link to="/login">Se connecter</Link>
+      </p>
     </div>
   );
 };

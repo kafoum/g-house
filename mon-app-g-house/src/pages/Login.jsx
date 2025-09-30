@@ -1,63 +1,74 @@
 import React, { useState } from 'react';
-import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext'; // 🔑 Importez le hook useAuth
+import './Auth.css';
 
-const Login = ({ setAuthToken, setUserRole }) => {
-  const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-  });
-
+const Login = () => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
+  // 1. Utilisez le hook useAuth pour accéder à la fonction login
+  const { login } = useAuth(); 
 
-  const handleSubmit = async (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    try {
-      const response = await axios.post('https://g-house-api.onrender.com/api/login', formData);
-      const { token, user } = response.data;
-      
-      // Stocke le token et les informations de l'utilisateur dans le localStorage
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('userRole', user.role); // 🚨 AJOUT DE CETTE LIGNE
+    setMessage('');
+    setLoading(true);
 
-      // Met à jour l'état d'authentification dans l'application principale
-      setAuthToken(token);
-      if (setUserRole) {
-        setUserRole(user.role); // 🚨 AJOUT DE CETTE LIGNE
-      }
+    try {
+      // 2. Appelez la fonction login du contexte
+      const user = await login(email, password); 
       
+      // La fonction login gère déjà le token et l'état dans le contexte.
       setMessage('Connexion réussie !');
 
-      // Redirection après une connexion réussie
-      setTimeout(() => {
-        navigate('/'); // Redirection vers la page d'accueil
-      }, 1500);
+      // 3. Redirigez l'utilisateur en fonction du rôle renvoyé
+      if (user.role === 'landlord') {
+        navigate('/dashboard'); // Propriétaire : va au tableau de bord
+      } else {
+        navigate('/'); // Locataire : va à la page d'accueil (HousingList)
+      }
+      
     } catch (error) {
-      setMessage(error.response?.data?.message || 'Email ou mot de passe incorrect.');
+      // Axios Error géré dans AuthContext renvoie le message.
+      const errorMessage = error.response?.data?.message || 'Erreur lors de la connexion. Vérifiez vos identifiants.';
+      console.error("Erreur de connexion:", errorMessage);
+      setMessage(errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div>
+    <div className="auth-container">
       <h2>Connexion</h2>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="email">Email :</label>
-          <input type="email" id="email" name="email" value={formData.email} onChange={handleChange} required />
-        </div>
-        <div>
-          <label htmlFor="password">Mot de passe :</label>
-          <input type="password" id="password" name="password" value={formData.password} onChange={handleChange} required />
-        </div>
-        <button type="submit">Se connecter</button>
+      <form onSubmit={handleLogin} className="auth-form">
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        <input
+          type="password"
+          placeholder="Mot de passe"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+        <button type="submit" disabled={loading}>
+          {loading ? 'Connexion en cours...' : 'Se connecter'}
+        </button>
       </form>
-      {message && <p>{message}</p>}
+      {/* Afficher un message d'erreur en rouge, ou de succès en vert */}
+      {message && <p className={`message ${message.includes('réussie') ? 'success' : 'error'}`}>{message}</p>}
+      <p className="link-auth">
+        Pas encore de compte ? <Link to="/register">S'inscrire</Link>
+      </p>
     </div>
   );
 };

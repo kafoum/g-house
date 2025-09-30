@@ -1,0 +1,57 @@
+.navbar {
+    background-color: #007bff; /* Bleu standard */
+    color: white;
+    padding: 1rem 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.navbar-brand a {
+    color: white;
+    text-decoration: none;
+    font-size: 1.5rem;
+    font-weight: bold;
+}
+
+.navbar-links {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+}
+
+.navbar-links a, 
+.navbar-links .logout-button {
+    color: white;
+    text-decoration: none;
+    padding: 0.5rem 0.8rem;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    font-size: 1rem;
+}
+
+.navbar-links a:hover {
+    background-color: #0056b3;
+}
+
+.logout-button {
+    background: none;
+    border: 1px solid white;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.logout-button:hover {
+    background-color: #dc3545; /* Rouge pour le hover */
+    border-color: #dc3545;
+}
+
+/* Style spécifique pour le lien de connexion s'il est utilisé comme bouton */
+.login-link {
+    background-color: #28a745; /* Vert pour se connecter */
+}
+
+.login-link:hover {
+    background-color: #218838;
+}
