@@ -405,7 +405,6 @@ server.listen(PORT, () => {
 
 // backend/index.js
 // ...
-const cors = require('cors');
 
 // La configuration CORS
 app.use(cors({
