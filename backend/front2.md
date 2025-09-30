@@ -1,0 +1,38 @@
+```
+└── 📁mon-app-g-house
+    └── 📁public
+        ├── vite.svg
+    └── 📁src
+        └── 📁api
+            ├── api.js
+        └── 📁assets
+            ├── react.svg
+        └── 📁components
+            ├── ChatButton.jsx
+        └── 📁pages
+            ├── Conversation.jsx
+            ├── ConversationsList.jsx
+            ├── CreateHousing.jsx
+            ├── EditHousing.jsx
+            ├── Home.jsx
+            ├── HousingDetail.jsx
+            ├── HousingList.jsx
+            ├── Login.jsx
+            ├── ManageHousing.jsx
+            ├── Register.jsx
+            ├── UpdateHousing.jsx
+        ├── App.css
+        ├── App.jsx
+        ├── index.css
+        ├── main.jsx
+    ├── .env.local
+    ├── .gitignore
+    ├── eslint.config.js
+    ├── index.html
+    ├── package-lock.json
+    ├── package.json
+    ├── postcss.config.js
+    ├── README.md
+    ├── tailwind.config.js
+    └── vite.config.js
+```
