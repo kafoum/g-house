@@ -119,13 +119,7 @@ wss.on('connection', ws => {
 
 
 // Middleware CORS
-// Configuration spécifique pour autoriser les requêtes depuis votre domaine Vercel
-const corsOptions = {
-    origin: 'https://g-house.vercel.app',
-    optionsSuccessStatus: 200
-};
-app.use(cors(corsOptions));
-
+app.use(cors());
 
 // Middleware pour analyser les requêtes JSON
 app.use(express.json());
@@ -393,6 +387,9 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
     }
 });
 
+// Suppression de cette route car l'envoi de messages se fait désormais par WebSocket
+// app.post('/api/conversations/:id/messages', authMiddleware, async (req, res) => { ... });
+
 // Route pour la documentation de l'API
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
@@ -405,3 +402,19 @@ app.get('/', (req, res) => {
 server.listen(PORT, () => {
     console.log(`Le serveur de G-House est en cours d'exécution sur le port ${PORT}`);
 });
+
+// backend/index.js
+// ...
+const cors = require('cors');
+
+// La configuration CORS
+app.use(cors({
+    origin: [
+        'http://localhost:5173', // Pour le développement local
+        'https://g-house.vercel.app/' // 💡 AJOUTEZ L'URL DE VOTRE FRONTEND VERCEL ICI
+    ],
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    credentials: true,
+    optionsSuccessStatus: 204
+}));
+// ...
