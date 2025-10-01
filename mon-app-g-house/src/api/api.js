@@ -211,3 +211,6 @@ export const getNotifications = () => {
 export const markNotificationAsRead = (notificationId) => {
     return api.put(`/api/notifications/${notificationId}/read`, { isRead: true });
 };
+
+
+export default api;
