@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom'; // Nécessaire pour les redirections dans le logout
-import { loginUser, registerUser } from '../api/api'; // Importez les fonctions Axios
+// 💡 CORRECTION : Utilisation de l'alias pour mapper les noms d'API (login, register) aux noms locaux (loginUser, registerUser)
+import { login as loginUser, register as registerUser } from '../api/api'; 
 
 // Crée le Contexte
 const AuthContext = createContext(null);
@@ -9,7 +10,7 @@ const AuthContext = createContext(null);
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth doit être utilisé à l\'intérieur d\'un AuthProvider');
+    throw new Error("useAuth doit être utilisé à l'intérieur d'un AuthProvider");
   }
   return context;
 };
@@ -34,27 +35,22 @@ export const AuthProvider = ({ children }) => {
             setUser(parsedUser);
             // Note : Pour une sécurité maximale, on ferait ici un appel API pour vérifier la validité du token.
         } catch (e) {
-            console.error("Erreur lors du parsing de l'utilisateur stocké:", e);
-            // En cas d'erreur de parsing ou de token invalide, on efface tout.
-            localStorage.clear();
+            console.error("Erreur lors du parsing des données utilisateur:", e);
         }
     }
     setIsLoading(false);
   }, []);
 
-
   // --- 2. Fonction de connexion ---
   const login = async (email, password) => {
     setIsLoading(true);
     try {
-      // Axios renvoie la réponse dans l'objet "data"
-      const response = await loginUser(email, password); 
-      const { token, user: userData } = response.data; // Le backend renvoie { token, user: { id, name, role, ... } }
-
-      // Mise à jour de l'état
+      const response = await loginUser({ email, password }); // loginUser est l'alias de la fonction 'login' de l'API
+      
+      const { token, user: userData } = response.data;
       setUser(userData);
 
-      // Stockage local pour la persistance et l'intercepteur Axios
+      // Stocke dans le local pour la persistance et l'intercepteur Axios
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(userData));
       
@@ -72,7 +68,7 @@ export const AuthProvider = ({ children }) => {
   // --- 3. Fonction d'inscription ---
   const register = async (userData) => {
     try {
-        await registerUser(userData);
+        await registerUser(userData); // registerUser est l'alias de la fonction 'register' de l'API
         // Le backend renvoie un message de succès.
     } catch (error) {
         throw error.response?.data?.message || "Erreur inconnue lors de l'inscription.";
@@ -101,8 +97,8 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider value={value}>
-      {/* N'affiche l'application que lorsque l'état initial a été chargé (vérif localStorage) */}
-      {!isLoading && children} 
+      {/* N'affiche l'application que lorsque l'état initial a été chargé (vérification localStorage) */}
+      {!isLoading && children}
     </AuthContext.Provider>
   );
 };
