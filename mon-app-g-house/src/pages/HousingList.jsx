@@ -2,10 +2,6 @@ import React, { useState, useEffect } from 'react';
 // import axios from 'axios'; // ❌ Suppression de l'import axios direct
 import { Link } from 'react-router-dom';
 import api from '../api/api'; // ✅ Le chemin d'importation de l'API est corrigé : '../api/api'
-import HousingCarousel from '../components/HousingCarousel'; // Supposé si vous utilisez ce composant
-import SearchBar from '../components/SearchBar'; // Supposé si vous utilisez ce composant
-import FilterBar from '../components/FilterBar'; // Supposé si vous utilisez ce composant
-import './HousingList.css'; // Supposé si vous utilisez ce fichier CSS
 
 const HousingList = () => {
   const [housingList, setHousingList] = useState([]);
