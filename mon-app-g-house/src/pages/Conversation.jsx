@@ -1,19 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import axios from 'axios';
-import { jwtDecode } from 'jwt-decode';
+// 🔑 Importation de la fonction d'API pour la requête REST initiale
+import { getMessages } from '../api/api'; 
+// 🔑 Importation du contexte d'authentification
+import { useAuth } from '../context/AuthContext'; 
 
 const Conversation = () => {
-    const { id } = useParams();
+    const { id: conversationId } = useParams();
+    const { user } = useAuth(); // 🔑 Récupère l'utilisateur connecté
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [user, setUser] = useState(null);
     const [conversation, setConversation] = useState(null);
     const ws = useRef(null);
     const messagesEndRef = useRef(null);
-
+    
     // Fonction pour scroller en bas des messages
     const scrollToBottom = () => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -22,133 +24,121 @@ const Conversation = () => {
     useEffect(scrollToBottom, [messages]);
 
     useEffect(() => {
-        const token = localStorage.getItem('token');
-        if (token) {
-            try {
-                const decodedToken = jwtDecode(token);
-                setUser(decodedToken);
-            } catch (err) {
-                console.error("Invalid token:", err);
-            }
+        if (!user) {
+            setError('Veuillez vous connecter pour accéder à cette conversation.');
+            setLoading(false);
+            return;
         }
+
+        // 1. Récupération des messages existants (Requête REST)
+        const fetchMessages = async () => {
+            try {
+                // 🔑 Utilisation de la fonction getMessages de l'API
+                const response = await getMessages(conversationId); 
+                // L'API peut renvoyer la conversation dans la réponse (si elle le fait) ou juste les messages.
+                // Pour l'instant, on se concentre sur les messages.
+                setMessages(response.data.messages); 
+                setLoading(false);
+            } catch (err) {
+                console.error("Erreur de chargement des messages:", err);
+                setError('Impossible de charger les messages.');
+                setLoading(false);
+            }
+        };
+
+        fetchMessages();
+
+
+        // 2. Initialisation de la connexion WebSocket
         
-        // Obtenir l'URL de l'API, en gérant le cas où elle n'est pas définie
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+        // 🔑 Utilisation de l'URL de l'API définie dans .env.local
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'; 
         
-        // Initialisation de la connexion WebSocket
-        // Assurez-vous d'utiliser 'ws://' ou 'wss://' selon votre environnement
-        const WS_URL = API_URL.startsWith('https') ? API_URL.replace('https', 'wss') : API_URL.replace('http', 'ws');
+        // Convertir l'URL HTTP/HTTPS en WS/WSS
+        // On retire '/api' à la fin et on change le protocole.
+        const WS_PROTOCOL = API_URL.startsWith('https') ? 'wss://' : 'ws://';
+        // On retire le protocole actuel pour le remplacer par WS_PROTOCOL
+        const BASE_DOMAIN = API_URL.replace(/^https?:\/\//, '').replace(/\/api$/, '');
+        const WS_URL = `${WS_PROTOCOL}${BASE_DOMAIN}/ws?token=${localStorage.getItem('token')}&conversationId=${conversationId}`;
+
         ws.current = new WebSocket(WS_URL);
 
         ws.current.onopen = () => {
             console.log('Connexion WebSocket établie.');
-            // Envoyer le token d'authentification
-            ws.current.send(JSON.stringify({ type: 'auth', token }));
         };
 
         ws.current.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'message') {
-                // Ajouter le nouveau message à l'état local
-                setMessages(prevMessages => [...prevMessages, data.message]);
-            }
+            const message = JSON.parse(event.data);
+            console.log("Nouveau message reçu:", message);
+            // Ajout du nouveau message à la liste
+            setMessages((prevMessages) => [...prevMessages, message]);
         };
 
         ws.current.onclose = () => {
             console.log('Connexion WebSocket fermée.');
         };
 
-        ws.current.onerror = (err) => {
-            console.error('Erreur WebSocket:', err);
+        ws.current.onerror = (error) => {
+            console.error('Erreur WebSocket:', error);
         };
-
+        
+        // Fonction de nettoyage lors du démontage du composant
         return () => {
-            if (ws.current) {
-                ws.current.close();
-            }
+            ws.current?.close();
         };
 
-    }, []);
+    }, [conversationId, user]); // Déclenche si la conversation ou l'utilisateur change
 
-    useEffect(() => {
-        const fetchMessagesAndConversation = async () => {
-            try {
-                const token = localStorage.getItem('token');
-                if (!token) {
-                    setError('Vous devez être connecté pour voir les messages.');
-                    setLoading(false);
-                    return;
-                }
-                
-                const config = {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                };
-                
-                // Obtenir l'URL de l'API
-                const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-
-                // Récupérer les messages initiaux
-                const messagesRes = await axios.get(`${API_URL}/api/conversations/${id}/messages`, config);
-                setMessages(messagesRes.data.messages);
-                
-                // Récupérer les détails de la conversation
-                // const convRes = await axios.get(`${API_URL}/api/conversations/${id}`, config);
-                // setConversation(convRes.data.conversation);
-                
-                setLoading(false);
-            } catch (err) {
-                setError('Erreur lors du chargement des messages.');
-                console.error(err);
-                setLoading(false);
-            }
-        };
-
-        if (id) {
-            fetchMessagesAndConversation();
-        }
-    }, [id]);
-
+    // Gestion de l'envoi de messages
     const handleSendMessage = (e) => {
         e.preventDefault();
         if (newMessage.trim() === '' || !ws.current || ws.current.readyState !== WebSocket.OPEN) {
             return;
         }
 
-        // Envoyer le message via WebSocket
-        ws.current.send(JSON.stringify({
-            type: 'message',
+        const messageData = {
+            conversationId,
             content: newMessage,
-            conversationId: id,
-            token: localStorage.getItem('token')
-        }));
+            senderId: user.userId, // ID de l'utilisateur connecté
+            // L'API s'occupe de l'enregistrement et de la diffusion
+        };
         
+        ws.current.send(JSON.stringify(messageData));
         setNewMessage('');
     };
-    
-    if (loading) return <div className="text-center text-xl font-medium text-gray-700">Chargement des messages...</div>;
-    if (error) return <div className="text-center text-red-500 font-bold">{error}</div>;
 
+
+    if (loading) {
+        return <p className="text-center mt-10">Chargement de la conversation...</p>;
+    }
+
+    if (error) {
+        return <p className="text-center mt-10 text-red-500">{error}</p>;
+    }
+    
+    // Le rendu du chat reste similaire
     return (
-        <div className="flex flex-col h-[80vh] bg-white rounded-xl shadow-lg p-6 max-w-2xl mx-auto">
-            <h1 className="text-2xl font-bold text-gray-800 mb-4">
-                Conversation
-            </h1>
-            <div className="flex-1 overflow-y-auto space-y-4 pr-2 mb-4">
+        <div className="container mx-auto p-4 max-w-2xl">
+            <h2 className="text-3xl font-bold mb-6 text-gray-800 text-center">Conversation</h2>
+            
+            <div className="flex flex-col gap-3 h-[60vh] overflow-y-auto p-4 bg-gray-50 rounded-lg shadow-inner">
                 {messages.map((msg) => (
                     <div
-                        key={msg._id}
+                        key={msg.createdAt + msg.content} // Clé unique basée sur le contenu et l'heure pour les messages temporaires
                         className={`flex ${msg.sender._id === user?.userId ? 'justify-end' : 'justify-start'}`}
                     >
                         <div
                             className={`p-3 rounded-xl max-w-[70%] shadow-sm ${msg.sender._id === user?.userId ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-800'}`}
                         >
-                            <p className="font-semibold text-sm mb-1">{msg.sender.name}</p>
+                            {/* Assurez-vous que l'objet sender est bien peuplé (populate dans le backend) */}
+                            <p className="font-semibold text-sm mb-1">{msg.sender.name}</p> 
                             <p className="text-sm">{msg.content}</p>
                         </div>
                     </div>
                 ))}
                 <div ref={messagesEndRef} />
             </div>
+
             <form onSubmit={handleSendMessage} className="flex gap-2 mt-4">
                 <input
                     type="text"
@@ -156,14 +146,17 @@ const Conversation = () => {
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder="Écrivez votre message..."
                     className="flex-1 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={!user}
                 />
                 <button
                     type="submit"
-                    className="p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition duration-300"
+                    className="p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition duration-300 disabled:bg-gray-400"
+                    disabled={!user || newMessage.trim() === ''}
                 >
                     Envoyer
                 </button>
             </form>
+            {error && <p className="text-center mt-4 text-red-500">Erreur : {error}</p>}
         </div>
     );
 };

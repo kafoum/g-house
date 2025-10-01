@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-// Import des fonctions de l'API (qui utilisent Axios)
+// 🔑 Importation des fonctions spécifiques de l'API (qui utilisent ../api/api)
 import { getUserHousing, getBookings, deleteHousing, updateBookingStatus } from '../api/api'; 
 import { useAuth } from '../context/AuthContext';
-import LandlordHousingItem from '../components/LandlordHousingItem'; // Composant à créer
+import LandlordHousingItem from '../components/LandlordHousingItem'; 
 
 const Dashboard = () => {
-  const { user } = useAuth(); // On récupère l'utilisateur connecté pour l'affichage
+  // 🔑 Récupération de l'utilisateur depuis le contexte
+  const { user } = useAuth(); 
   const [userHousing, setUserHousing] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -15,107 +16,110 @@ const Dashboard = () => {
   // --- Récupération des données ---
 
   const fetchData = async () => {
-    if (!user) {
-        setError("Accès non autorisé.");
+    // Vérifie si l'utilisateur est bien connecté avant l'appel
+    if (!user) { 
+        setError("Accès non autorisé. Veuillez vous reconnecter.");
         setLoading(false);
         return;
     }
     
     try {
-        // 1. Récupérer les annonces du propriétaire
+        // 1. Récupérer les annonces du propriétaire via la fonction d'API
         const housingResponse = await getUserHousing();
         setUserHousing(housingResponse.data.housing || []);
         
-        // 2. Récupérer toutes les réservations liées aux logements de l'utilisateur
+        // 2. Récupérer toutes les réservations
         const bookingResponse = await getBookings();
-        // Filtrer les réservations pour ne montrer que celles liées à un logement qui lui appartient (utile si l'API renvoie TOUTES les bookings de l'utilisateur, même celles faites en tant que locataire)
+        // Filtrer les réservations pour ne montrer que celles liées à ses logements
         const landlordHousingIds = housingResponse.data.housing.map(h => h._id);
-        const landlordBookings = bookingResponse.data.bookings.filter(b => landlordHousingIds.includes(b.housing._id));
+        const filteredBookings = bookingResponse.data.bookings.filter(
+            booking => landlordHousingIds.includes(booking.housing._id)
+        );
 
-        setBookings(landlordBookings);
+        setBookings(filteredBookings);
 
     } catch (err) {
-        console.error("Erreur lors de la récupération du dashboard:", err);
-        setError(err.message || "Erreur lors de la récupération des données.");
+      console.error(err);
+      setError("Erreur lors de la récupération de vos données.");
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchData();
-  }, [user]); 
-  
-  // --- Gestion des actions ---
+  }, [user]); // Déclenche le fetch lorsque l'utilisateur est chargé
 
-  // Action de suppression d'annonce
-  const handleHousingDelete = async (housingId) => {
+  // ... (Fonction de suppression d'annonce)
+  const handleDeleteHousing = async (housingId) => {
     if (window.confirm("Êtes-vous sûr de vouloir supprimer cette annonce ?")) {
       try {
         await deleteHousing(housingId);
-        // Mettre à jour la liste des annonces et des réservations après suppression
-        fetchData();
-        alert("Annonce supprimée avec succès.");
+        // Met à jour la liste en retirant l'annonce supprimée
+        setUserHousing(currentHousing => currentHousing.filter(housing => housing._id !== housingId));
       } catch (err) {
-        alert("Erreur lors de la suppression de l'annonce : " + err.message);
+        console.error("Erreur lors de la suppression:", err);
+        setError("Erreur lors de la suppression de l'annonce.");
       }
     }
   };
 
-  // Action de mise à jour du statut de réservation
+  // ... (Fonction de mise à jour du statut de réservation)
   const handleUpdateBookingStatus = async (bookingId, status) => {
     try {
       await updateBookingStatus(bookingId, status);
-      // Actualiser la liste des réservations
-      fetchData(); 
-      alert(`Réservation ${status} avec succès.`);
+      // Met à jour l'état local pour refléter le changement
+      setBookings(currentBookings => 
+        currentBookings.map(booking => 
+          booking._id === bookingId ? { ...booking, status: status } : booking
+        )
+      );
     } catch (err) {
-      alert("Erreur lors de la mise à jour du statut : " + err.message);
+      console.error(`Erreur lors de la mise à jour du statut de la réservation ${bookingId}:`, err);
+      setError("Erreur lors de la mise à jour du statut de la réservation.");
     }
   };
-
+  
+  // ... (Affichage loading, error)
 
   if (loading) {
-    return <p className="dashboard-loading">Chargement du tableau de bord...</p>;
+    return <p className="text-center mt-10">Chargement du tableau de bord...</p>;
   }
 
   if (error) {
     return <p className="error-message">{error}</p>;
   }
-  
-  // Si l'utilisateur est bien propriétaire, on affiche le dashboard
+
+  if (user?.role !== 'landlord') {
+    return <p className="error-message">Seuls les propriétaires ont accès au tableau de bord.</p>;
+  }
+
   return (
     <div className="dashboard-container">
-      <h1>Bonjour, {user.name}</h1>
-      <p className="user-role">Rôle : {user.role === 'landlord' ? 'Propriétaire' : 'Locataire'}</p>
+      <h1>Mon tableau de bord</h1>
+      <Link to="/create-housing" className="dashboard-link">Créer une nouvelle annonce</Link>
       
-      <Link to="/create-housing" className="dashboard-link">Créer une nouvelle annonce ➕</Link>
-      
-      {/* SECTION 1: MES ANNONCES */}
-      <div className="dashboard-section">
-        <h2>Mes annonces ({userHousing.length})</h2>
+      {/* --- Section Mes Annonces --- */}
+      <h3>Mes annonces ({userHousing.length})</h3>
+      <div className="housing-list">
         {userHousing.length > 0 ? (
-          <div className="housing-management-grid">
-            {userHousing.map((housing) => (
-              <LandlordHousingItem 
-                key={housing._id} 
-                housing={housing}
-                onDelete={handleHousingDelete}
-              />
-            ))}
-          </div>
+          userHousing.map(housing => (
+            <LandlordHousingItem 
+              key={housing._id} 
+              housing={housing} 
+              onDelete={handleDeleteHousing}
+            />
+          ))
         ) : (
           <p>Vous n'avez pas encore publié d'annonce.</p>
         )}
       </div>
 
-      <hr />
-
-      {/* SECTION 2: GESTION DES RÉSERVATIONS */}
-      <div className="dashboard-section">
-        <h2>Réservations de mes logements ({bookings.length})</h2>
+      {/* --- Section Mes Réservations --- */}
+      <h3>Réservations en attente ou confirmées ({bookings.length})</h3>
+      <div className="bookings-list">
         {bookings.length > 0 ? (
-          <div className="bookings-list">
+          <div className="booking-grid">
             {bookings.map((booking) => (
               <div key={booking._id} className={`booking-card booking-status-${booking.status}`}>
                 <p><strong>Logement :</strong> {booking.housing.title}</p>
@@ -131,7 +135,7 @@ const Dashboard = () => {
                   </div>
                 )}
                 
-                {/* Liens de messagerie (à implémenter) */}
+                {/* 🔑 Lien de messagerie avec l'ID du destinataire */}
                 <Link to={`/conversations/start?user=${booking.tenant._id}`} className="btn-message">
                     Contacter le locataire 💬
                 </Link>

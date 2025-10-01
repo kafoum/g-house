@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext'; // 🔑 Importez le hook useAuth
 import './Auth.css';
-
+import api from '../api/api'; 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -20,6 +20,7 @@ const Login = () => {
 
     try {
       // 2. Appelez la fonction login du contexte
+      // Elle gère l'appel à api.post('/login', ...) et la sauvegarde du token/rôle
       const user = await login(email, password); 
       
       // La fonction login gère déjà le token et l'état dans le contexte.
@@ -34,6 +35,7 @@ const Login = () => {
       
     } catch (error) {
       // Axios Error géré dans AuthContext renvoie le message.
+      // On affiche le message d'erreur si la connexion échoue.
       const errorMessage = error.response?.data?.message || 'Erreur lors de la connexion. Vérifiez vos identifiants.';
       console.error("Erreur de connexion:", errorMessage);
       setMessage(errorMessage);
