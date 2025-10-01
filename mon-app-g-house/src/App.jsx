@@ -1,25 +1,25 @@
 import React, { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import Navbar from './components/Navbar';
-import ProtectedRoute from './components/ProtectedRoute'; // Assurez-vous d'avoir ce composant
-import { AuthProvider } from './context/AuthContext'; // Assurez-vous d'avoir ce contexte
+import ProtectedRoute from './components/ProtectedRoute'; 
+import { AuthProvider } from './context/AuthContext'; 
 
 // 🔑 Importation des outils Stripe
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
 
-// Lazy Load des pages
+// Lazy Load des pages (pour améliorer la performance)
 const HousingList = lazy(() => import('./pages/HousingList'));
-const HousingDetail = lazy(() => import('./pages/HousingDetail'));
+const HousingDetail = lazy(() => import('./pages/HousingDetail')); 
 const Register = lazy(() => import('./pages/Register'));
 const Login = lazy(() => import('./pages/Login'));
 const CreateHousing = lazy(() => import('./pages/CreateHousing'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const ConversationsList = lazy(() => import('./pages/ConversationsList'));
 const Conversation = lazy(() => import('./pages/Conversation'));
-const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess')); // 🔑 Nouvelle page de succès
+const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess')); 
 
-// Charger la clé Stripe publique (doit avoir le préfixe VITE_ si vous utilisez Vite)
+// Charger la clé Stripe publique (assurez-vous que VITE_STRIPE_PUBLIC_KEY est défini dans .env.local et Vercel)
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
 
 function App() {
@@ -35,10 +35,10 @@ function App() {
                 
                 {/* ROUTES PUBLIQUES */}
                 <Route path="/" element={<HousingList />} />
-                <Route path="/housing/:id" element={<HousingDetail />} />
+                <Route path="/housing/:id" element={<HousingDetail />} /> {/* Composant corrigé */}
                 <Route path="/register" element={<Register />} />
                 <Route path="/login" element={<Login />} />
-                <Route path="/success" element={<PaymentSuccess />} /> {/* 🔑 Route de succès paiement */}
+                <Route path="/success" element={<PaymentSuccess />} /> 
                 
                 {/* ROUTES PROTÉGÉES (Nécessite uniquement d'être connecté) */}
                 <Route element={<ProtectedRoute />}>
@@ -50,7 +50,8 @@ function App() {
                 <Route element={<ProtectedRoute allowedRole="landlord" />}>
                     <Route path="/create-housing" element={<CreateHousing />} />
                     <Route path="/dashboard" element={<Dashboard />} /> 
-                    <Route path="/edit-housing/:id" element={<CreateHousing />} />
+                    {/* Note: CreateHousing est utilisé pour l'édition, vérifiez que le composant gère les deux cas */}
+                    <Route path="/edit-housing/:id" element={<CreateHousing />} /> 
                 </Route>
                 
               </Routes>
