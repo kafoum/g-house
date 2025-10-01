@@ -1,245 +1,220 @@
-import React, { useState } from 'react';
-import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { createHousing, updateHousing, getHousingDetails } from '../api/api'; 
+import './CreateHousing.css'; // Pour les styles que vous avez fournis
+
+const initialFormData = {
+  title: '',
+  description: '',
+  price: '',
+  location: {
+    address: '',
+    city: '',
+    zipCode: ''
+  },
+  type: 'chambre',
+  amenities: '' // String séparée par des virgules
+};
 
 const CreateHousing = () => {
-    const navigate = useNavigate();
-    const [formData, setFormData] = useState({
-        title: '',
-        description: '',
-        location: {
-            city: '',
-            address: ''
-        },
-        price: '',
-        housing_type: '',
-        number_of_rooms: '',
-        number_of_tenants: '',
-        amenities: [],
-        images: []
-    });
-    const [message, setMessage] = useState({ text: '', type: '' });
-    const [loading, setLoading] = useState(false);
-    const [selectedImages, setSelectedImages] = useState([]);
+  const { id } = useParams(); // Récupère l'ID si nous sommes en mode édition
+  const navigate = useNavigate();
+  const [formData, setFormData] = useState(initialFormData);
+  const [images, setImages] = useState([]); // Pour les NOUVEAUX fichiers à uploader
+  const [existingImages, setExistingImages] = useState([]); // Pour les URLs des images EXISTANTES (en mode édition)
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        if (name === 'city' || name === 'address') {
-            setFormData(prev => ({
-                ...prev,
-                location: {
-                    ...prev.location,
-                    [name]: value
-                }
-            }));
-        } else if (name === 'amenities') {
-            const options = e.target.options;
-            const values = [];
-            for (let i = 0, l = options.length; i < l; i++) {
-                if (options[i].selected) {
-                    values.push(options[i].value);
-                }
-            }
-            setFormData(prev => ({ ...prev, amenities: values }));
-        } else {
-            setFormData(prev => ({ ...prev, [name]: value }));
-        }
-    };
+  const isEditMode = !!id;
 
-    const handleImageChange = (e) => {
-        setSelectedImages(Array.from(e.target.files));
-    };
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
+  // --- Chargement des données pour l'édition (useEffect) ---
+  useEffect(() => {
+    if (isEditMode) {
+      const fetchHousingData = async () => {
         setLoading(true);
-        setMessage({ text: '', type: '' });
-
         try {
-            const data = new FormData();
-            for (const key in formData) {
-                if (key === 'location') {
-                    data.append('location_city', formData.location.city);
-                    data.append('location_address', formData.location.address);
-                } else if (key === 'amenities') {
-                    formData.amenities.forEach(amenity => data.append('amenities', amenity));
-                } else {
-                    data.append(key, formData[key]);
-                }
-            }
-            selectedImages.forEach(image => {
-                data.append('images', image);
-            });
+          // L'intercepteur Axios ajoute le token, mais cette route GET est publique.
+          const response = await getHousingDetails(id); 
+          const housing = response.data.housing; 
 
-            const token = localStorage.getItem('token');
-            await axios.post('https://g-house-api.onrender.com/api/housing', data, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'multipart/form-data'
-                }
-            });
-
-            setMessage({ text: 'Annonce créée avec succès!', type: 'success' });
-            setTimeout(() => {
-                navigate('/manage-housing');
-            }, 2000);
-        } catch (error) {
-            console.error(error);
-            setMessage({ text: 'Erreur lors de la création de l\'annonce. Veuillez réessayer.', type: 'error' });
+          setFormData({
+            title: housing.title,
+            description: housing.description,
+            price: housing.price,
+            location: {
+              address: housing.location.address,
+              city: housing.location.city,
+              zipCode: housing.location.zipCode
+            },
+            type: housing.type,
+            // Convertit le tableau d'équipements en chaîne de caractères pour le formulaire
+            amenities: housing.amenities.join(', ')
+          });
+          // Stocke les URLs des images existantes pour l'affichage (si besoin)
+          setExistingImages(housing.images || []);
+          
+        } catch (err) {
+          console.error("Erreur lors du chargement de l'annonce :", err);
+          setError("Erreur lors du chargement de l'annonce pour la modification.");
         } finally {
-            setLoading(false);
+          setLoading(false);
         }
-    };
+      };
+      fetchHousingData();
+    }
+  }, [id, isEditMode]);
 
-    return (
-        <div className="bg-gray-100 min-h-screen flex items-center justify-center py-12 px-4">
-            <div className="max-w-4xl w-full bg-white rounded-2xl shadow-2xl p-8">
-                <h2 className="text-3xl font-extrabold text-gray-900 text-center mb-6">
-                    Créer une nouvelle annonce
-                </h2>
-                <form onSubmit={handleSubmit} className="space-y-6">
-                    <div>
-                        <label htmlFor="title" className="block text-sm font-medium text-gray-700">Titre</label>
-                        <input
-                            type="text"
-                            name="title"
-                            value={formData.title}
-                            onChange={handleChange}
-                            required
-                            className="mt-1 block w-full p-3 border border-gray-300 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="description" className="block text-sm font-medium text-gray-700">Description</label>
-                        <textarea
-                            name="description"
-                            value={formData.description}
-                            onChange={handleChange}
-                            required
-                            rows="4"
-                            className="mt-1 block w-full p-3 border border-gray-300 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                        ></textarea>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label htmlFor="city" className="block text-sm font-medium text-gray-700">Ville</label>
-                            <input
-                                type="text"
-                                name="city"
-                                value={formData.location.city}
-                                onChange={handleChange}
-                                required
-                                className="mt-1 block w-full p-3 border border-gray-300 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                            />
-                        </div>
-                        <div>
-                            <label htmlFor="address" className="block text-sm font-medium text-gray-700">Adresse</label>
-                            <input
-                                type="text"
-                                name="address"
-                                value={formData.location.address}
-                                onChange={handleChange}
-                                required
-                                className="mt-1 block w-full p-3 border border-gray-300 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                            />
-                        </div>
-                    </div>
-                    <div>
-                        <label htmlFor="price" className="block text-sm font-medium text-gray-700">Prix par mois (€)</label>
-                        <input
-                            type="number"
-                            name="price"
-                            value={formData.price}
-                            onChange={handleChange}
-                            required
-                            className="mt-1 block w-full p-3 border border-gray-300 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                        />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div>
-                            <label htmlFor="housing_type" className="block text-sm font-medium text-gray-700">Type de logement</label>
-                            <select
-                                name="housing_type"
-                                value={formData.housing_type}
-                                onChange={handleChange}
-                                required
-                                className="mt-1 block w-full p-3 border border-gray-300 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                            >
-                                <option value="">Sélectionner</option>
-                                <option value="apartment">Appartement</option>
-                                <option value="house">Maison</option>
-                                <option value="studio">Studio</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label htmlFor="number_of_rooms" className="block text-sm font-medium text-gray-700">Nombre de pièces</label>
-                            <input
-                                type="number"
-                                name="number_of_rooms"
-                                value={formData.number_of_rooms}
-                                onChange={handleChange}
-                                required
-                                className="mt-1 block w-full p-3 border border-gray-300 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                            />
-                        </div>
-                        <div>
-                            <label htmlFor="number_of_tenants" className="block text-sm font-medium text-gray-700">Nombre de locataires</label>
-                            <input
-                                type="number"
-                                name="number_of_tenants"
-                                value={formData.number_of_tenants}
-                                onChange={handleChange}
-                                required
-                                className="mt-1 block w-full p-3 border border-gray-300 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                            />
-                        </div>
-                    </div>
-                    <div>
-                        <label htmlFor="amenities" className="block text-sm font-medium text-gray-700">Équipements (maintenez Ctrl/Cmd pour sélectionner plusieurs)</label>
-                        <select
-                            name="amenities"
-                            value={formData.amenities}
-                            onChange={handleChange}
-                            multiple
-                            className="mt-1 block w-full p-3 border border-gray-300 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500 h-32"
-                        >
-                            <option value="Wifi">Wifi</option>
-                            <option value="Parking">Parking</option>
-                            <option value="Machine à laver">Machine à laver</option>
-                            <option value="Climatisation">Climatisation</option>
-                            <option value="Balcon">Balcon</option>
-                            <option value="Jardin">Jardin</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label htmlFor="images" className="block text-sm font-medium text-gray-700">Images du logement</label>
-                        <input
-                            type="file"
-                            name="images"
-                            onChange={handleImageChange}
-                            multiple
-                            required
-                            className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                        />
-                    </div>
-                    
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
-                    >
-                        {loading ? 'Création en cours...' : 'Créer l\'annonce'}
-                    </button>
-                </form>
 
-                {message.text && (
-                    <div className={`mt-6 p-4 rounded-xl text-center ${message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                        {message.text}
-                    </div>
-                )}
+  // --- Gestion des changements de formulaire ---
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    
+    // Gère les champs imbriqués (location.city, location.address, etc.)
+    if (name in formData.location) {
+      setFormData(prev => ({
+        ...prev,
+        location: {
+          ...prev.location,
+          [name]: value
+        }
+      }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
+  };
+
+  // Gère la sélection des fichiers image
+  const handleFileChange = (e) => {
+    // Stocke la liste des fichiers sélectionnés par l'utilisateur
+    setImages(Array.from(e.target.files));
+  };
+
+
+  // --- Soumission du formulaire ---
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setMessage('');
+    setLoading(true);
+
+    try {
+      // 1. Préparation de FormData pour l'envoi de données et de fichiers
+      const formToSend = new FormData();
+      
+      // Ajout des champs de données de base
+      formToSend.append('title', formData.title);
+      formToSend.append('description', formData.description);
+      formToSend.append('price', formData.price);
+      formToSend.append('type', formData.type);
+      
+      // Les équipements sont envoyés sous forme de tableau (séparé par des virgules)
+      formToSend.append('amenities', formData.amenities); 
+      
+      // Ajout des données de localisation
+      formToSend.append('location.address', formData.location.address);
+      formToSend.append('location.city', formData.location.city);
+      formToSend.append('location.zipCode', formData.location.zipCode);
+      
+      // Ajout des fichiers image
+      images.forEach(file => {
+        // Le nom du champ doit correspondre à celui attendu par Multer/Cloudinary (e.g., 'images')
+        formToSend.append('images', file); 
+      });
+
+      // 2. Appel à l'API (Création ou Modification)
+      if (isEditMode) {
+        // En mode édition, les images existantes ne sont pas renvoyées. 
+        // L'API ne gère que l'ajout ou le remplacement des NOUVELLES images.
+        await updateHousing(id, formToSend);
+        setMessage("Annonce modifiée avec succès ! Redirection...");
+      } else {
+        await createHousing(formToSend);
+        setMessage("Annonce créée avec succès ! Redirection...");
+      }
+      
+      // 3. Redirection vers le tableau de bord après succès
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 1500); 
+
+    } catch (err) {
+      // Axios place l'erreur dans error.response pour les statuts HTTP 4xx/5xx
+      const errorMessage = err.response?.data?.message || `Erreur lors de ${isEditMode ? 'la modification' : 'la création'} de l'annonce.`;
+      setError(errorMessage);
+      console.error(errorMessage, err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading && isEditMode) {
+    return <p>Chargement des données de l'annonce...</p>;
+  }
+
+  return (
+    <div className="create-housing-container">
+      <h1>{isEditMode ? `Modifier : ${formData.title}` : 'Créer une nouvelle annonce'}</h1>
+      
+      <form onSubmit={handleSubmit} className="create-housing-form">
+        
+        {/* Champs de base */}
+        <input type="text" name="title" placeholder="Titre de l'annonce" value={formData.title} onChange={handleChange} required />
+        <textarea name="description" placeholder="Description détaillée" value={formData.description} onChange={handleChange} required />
+        <input type="number" name="price" placeholder="Prix par mois (en €)" value={formData.price} onChange={handleChange} required />
+        
+        {/* Type de logement */}
+        <label htmlFor="type">Type de logement</label>
+        <select name="type" id="type" value={formData.type} onChange={handleChange}>
+          <option value="chambre">Chambre</option>
+          <option value="studio">Studio</option>
+          <option value="T1">T1</option>
+          <option value="T2">T2</option>
+        </select>
+        
+        {/* Localisation */}
+        <h3>Localisation</h3>
+        <input type="text" name="city" placeholder="Ville" value={formData.location.city} onChange={handleChange} required />
+        <input type="text" name="address" placeholder="Adresse complète" value={formData.location.address} onChange={handleChange} required />
+        <input type="text" name="zipCode" placeholder="Code postal" value={formData.location.zipCode} onChange={handleChange} required />
+        
+        {/* Équipements */}
+        <input type="text" name="amenities" placeholder="Équipements (séparés par des virgules : Wifi, Parking, Balcon)" value={formData.amenities} onChange={handleChange} />
+        
+        {/* Images existantes (uniquement en mode édition) */}
+        {isEditMode && existingImages.length > 0 && (
+          <div>
+            <h4>Images actuelles ({existingImages.length})</h4>
+            <div style={{ display: 'flex', gap: '10px', overflowX: 'auto' }}>
+              {existingImages.map((url, index) => (
+                <img 
+                  key={index} 
+                  src={url} 
+                  alt={`Image existante ${index + 1}`} 
+                  style={{ width: '100px', height: '100px', objectFit: 'cover', borderRadius: '4px' }} 
+                />
+              ))}
             </div>
-        </div>
-    );
+            <p style={{ marginTop: '10px', fontSize: '0.9em', color: '#dc3545' }}>
+                **Note:** Télécharger de nouveaux fichiers remplacera les images existantes sur l'API, ou l'API gèrera l'ajout si elle est configurée ainsi.
+            </p>
+          </div>
+        )}
+
+        {/* Upload d'images */}
+        <label htmlFor="images">Télécharger les images (choisissez plusieurs fichiers)</label>
+        <input type="file" name="images" id="images" onChange={handleFileChange} multiple accept="image/*" />
+        
+        <button type="submit" disabled={loading}>
+          {loading ? 'Traitement...' : isEditMode ? 'Sauvegarder les modifications' : 'Créer l\'annonce'}
+        </button>
+      </form>
+
+      {/* Messages de retour */}
+      {message && <p className="success-message">{message}</p>}
+      {error && <p className="error-message">{error}</p>}
+    </div>
+  );
 };
 
 export default CreateHousing;

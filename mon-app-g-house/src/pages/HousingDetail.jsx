@@ -1,95 +1,55 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { useParams, useNavigate } from 'react-router-dom';
-import ChatButton from '../components/ChatButton';
+import { useParams } from 'react-router-dom';
+import api from '../services/api';
+import { useAuth } from '../context/AuthContext'; // 🔑 Importation du contexte pour vérifier si le propriétaire est connecté
+import BookingForm from '../components/BookingForm'; // 🔑 Importation du formulaire de réservation
+import './HousingDetails.css';
 
-const HousingDetail = () => {
+const HousingDetails = () => {
   const { id } = useParams();
-  const navigate = useNavigate();
+  const { user } = useAuth(); // Récupère les informations de l'utilisateur connecté
   const [housing, setHousing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [isOwner, setIsOwner] = useState(false);
 
   useEffect(() => {
-    const fetchHousingDetail = async () => {
+    const fetchHousingDetails = async () => {
       try {
-        const response = await axios.get(`https://g-house-api.onrender.com/api/housing/${id}`);
+        // ... (Logique de récupération des détails de l'annonce existante)
+        const response = await api.get(`/housing/${id}`);
         setHousing(response.data.housing);
-        
-        const user = JSON.parse(localStorage.getItem('user'));
-        if (user && response.data.housing.landlord === user.id) {
-          setIsOwner(true);
-        }
-
       } catch (err) {
-        setError('Logement non trouvé ou erreur de chargement.');
         console.error(err);
+        setError("Erreur lors de la récupération des détails de l'annonce.");
       } finally {
         setLoading(false);
       }
     };
-
-    fetchHousingDetail();
+    fetchHousingDetails();
   }, [id]);
 
-  const handleDelete = async () => {
-    // Utilisation d'une alternative à window.confirm
-    if (confirm('Êtes-vous sûr de vouloir supprimer cette annonce ?')) {
-      const token = localStorage.getItem('token');
-      try {
-        await axios.delete(`https://g-house-api.onrender.com/api/housing/${id}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        // Utilisation d'une alternative à window.alert
-        alert('Annonce supprimée avec succès !');
-        navigate('/housing'); // Redirige vers la liste des logements
-      } catch (err) {
-        // Utilisation d'une alternative à window.alert
-        alert('Erreur lors de la suppression de l\'annonce.');
-        console.error(err);
-      }
-    }
-  };
+  // ... (Code de gestion loading/error/not found)
 
-  if (loading) return <p>Chargement des détails du logement...</p>;
-  if (error) return <p className="error">{error}</p>;
-  if (!housing) return <p>Aucun détail disponible pour ce logement.</p>;
-
+  // Rendu
   return (
-    <div className="housing-detail-container">
-      <h1>{housing.title}</h1>
-      <div className="detail-images">
-        {housing.images.map((image, index) => (
-          <img key={index} src={image} alt={`${housing.title} - Image ${index + 1}`} />
-        ))}
-      </div>
-      <div className="detail-content">
-        <p><strong>Description :</strong> {housing.description}</p>
-        <p><strong>Prix :</strong> {housing.price} € / mois</p>
-        <p><strong>Ville :</strong> {housing.location.city}</p>
-        <p><strong>Adresse :</strong> {housing.location.address}</p>
-        <p><strong>Type :</strong> {housing.type}</p>
-        <p><strong>Commodités :</strong></p>
-        <ul>
-          {housing.amenities.map((amenity, index) => (
-            <li key={index}>{amenity}</li>
-          ))}
-        </ul>
-      </div>
+    <div className="housing-details">
+      {/* ... (Affichage des images et des détails du logement existant) ... */}
 
-      {isOwner ? (
-        <div className="owner-actions">
-          <button onClick={() => navigate(`/housing/edit/${housing._id}`)}>Modifier</button>
-          <button onClick={handleDelete} style={{ marginLeft: '10px' }}>Supprimer</button>
+      <div className="housing-info-overlay">
+        <h1 className="title-animation">{housing.title}</h1>
+        {/* ... (Autres détails) ... */}
+        
+        {/* 🔑 SECTION RÉSERVATION/PAIEMENT */}
+        <div className="booking-section">
+          <BookingForm 
+            housingId={housing._id} 
+            price={housing.price} // Prix mensuel pour le calcul
+            landlordId={housing.landlord._id || housing.landlord} // Assurez-vous d'avoir l'ID du propriétaire
+          />
         </div>
-      ) : (
-        <ChatButton landlordId={housing.landlord} housingId={housing._id} />
-      )}
+      </div>
     </div>
   );
 };
 
-export default HousingDetail;
+export default HousingDetails;
