@@ -4,7 +4,6 @@ import api from '../api/api'; // ✅ CORRECTION : Le chemin vers l'API est maint
 import { useAuth } from '../context/AuthContext'; 
 import BookingForm from '../components/BookingForm'; 
 import ChatButton from '../components/ChatButton'; // 🔑 Importation du bouton de chat
-import './HousingDetails.css';
 
 const HousingDetail = () => {
   const { id } = useParams();
