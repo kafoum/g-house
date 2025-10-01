@@ -10,7 +10,7 @@ import { Elements } from '@stripe/react-stripe-js';
 
 // Lazy Load des pages
 const HousingList = lazy(() => import('./pages/HousingList'));
-const HousingDetails = lazy(() => import('./pages/HousingDetails'));
+const HousingDetail = lazy(() => import('./pages/HousingDetail'));
 const Register = lazy(() => import('./pages/Register'));
 const Login = lazy(() => import('./pages/Login'));
 const CreateHousing = lazy(() => import('./pages/CreateHousing'));
@@ -35,7 +35,7 @@ function App() {
                 
                 {/* ROUTES PUBLIQUES */}
                 <Route path="/" element={<HousingList />} />
-                <Route path="/housing/:id" element={<HousingDetails />} />
+                <Route path="/housing/:id" element={<HousingDetail />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/success" element={<PaymentSuccess />} /> {/* 🔑 Route de succès paiement */}
