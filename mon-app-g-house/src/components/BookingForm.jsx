@@ -3,7 +3,7 @@ import { useStripe, useElements } from '@stripe/react-stripe-js';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 // 🔑 L'importation manquante qui corrige l'erreur Vercel
-import { createBookingSession } from '../api/api'; 
+import { createPaymentSession } from '../api/api'; 
 
 // --- Fonctions utilitaires de calcul ---
 
