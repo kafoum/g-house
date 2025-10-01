@@ -1,126 +1,135 @@
+// frontend/src/pages/Dashboard.jsx
+
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-// 🔑 Importation des fonctions spécifiques de l'API (qui utilisent ../api/api)
+// Import des fonctions de l'API (qui utilisent Axios)
 import { getUserHousing, getBookings, deleteHousing, updateBookingStatus } from '../api/api'; 
 import { useAuth } from '../context/AuthContext';
+// Remplacez LandlordHousingItem par le nom de votre composant d'affichage de logement si différent
 import LandlordHousingItem from '../components/LandlordHousingItem'; 
 
 const Dashboard = () => {
-  // 🔑 Récupération de l'utilisateur depuis le contexte
   const { user } = useAuth(); 
   const [userHousing, setUserHousing] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // --- Récupération des données ---
+  // --- Fonction de récupération de toutes les données ---
 
   const fetchData = async () => {
-    // Vérifie si l'utilisateur est bien connecté avant l'appel
-    if (!user) { 
+    if (!user) {
         setError("Accès non autorisé. Veuillez vous reconnecter.");
         setLoading(false);
         return;
     }
     
     try {
-        // 1. Récupérer les annonces du propriétaire via la fonction d'API
+        // 1. Récupérer les annonces du propriétaire
         const housingResponse = await getUserHousing();
-        setUserHousing(housingResponse.data.housing || []);
+        const housingList = housingResponse.data.housing || [];
+        setUserHousing(housingList);
         
         // 2. Récupérer toutes les réservations
-        const bookingResponse = await getBookings();
+        const bookingResponse = await getBookings(); // ✅ Utilise la fonction corrigée dans api.js
+        
         // Filtrer les réservations pour ne montrer que celles liées à ses logements
-        const landlordHousingIds = housingResponse.data.housing.map(h => h._id);
+        const landlordHousingIds = housingList.map(h => h._id);
         const filteredBookings = bookingResponse.data.bookings.filter(
+            // Le backend retourne l'objet housing dans la réservation.
+            // On vérifie que l'ID de ce logement fait partie des logements du propriétaire.
             booking => landlordHousingIds.includes(booking.housing._id)
+        ).filter(
+            // Afficher uniquement les statuts pertinents pour le propriétaire
+            booking => ['pending', 'confirmed'].includes(booking.status)
         );
-
         setBookings(filteredBookings);
 
     } catch (err) {
+      const errorMessage = err.response?.data?.message || "Erreur lors du chargement du tableau de bord.";
+      setError(errorMessage);
       console.error(err);
-      setError("Erreur lors de la récupération de vos données.");
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchData();
-  }, [user]); // Déclenche le fetch lorsque l'utilisateur est chargé
+  }, [user]); // Re-fetch si l'utilisateur change (ex: connexion)
 
-  // ... (Fonction de suppression d'annonce)
-  const handleDeleteHousing = async (housingId) => {
-    if (window.confirm("Êtes-vous sûr de vouloir supprimer cette annonce ?")) {
+  // --- Fonctions de gestion des actions ---
+  
+  const handleHousingDelete = async (id) => {
+    if (window.confirm("Êtes-vous sûr de vouloir supprimer cette annonce?")) {
       try {
-        await deleteHousing(housingId);
-        // Met à jour la liste en retirant l'annonce supprimée
-        setUserHousing(currentHousing => currentHousing.filter(housing => housing._id !== housingId));
+        await deleteHousing(id);
+        alert('Annonce supprimée !');
+        // Recharger les données après suppression
+        fetchData();
       } catch (err) {
-        console.error("Erreur lors de la suppression:", err);
-        setError("Erreur lors de la suppression de l'annonce.");
+        alert('Erreur lors de la suppression de l\'annonce.');
+        console.error(err);
       }
     }
   };
 
-  // ... (Fonction de mise à jour du statut de réservation)
   const handleUpdateBookingStatus = async (bookingId, status) => {
     try {
       await updateBookingStatus(bookingId, status);
-      // Met à jour l'état local pour refléter le changement
-      setBookings(currentBookings => 
-        currentBookings.map(booking => 
-          booking._id === bookingId ? { ...booking, status: status } : booking
-        )
-      );
+      alert(`Réservation ${status} !`);
+      // Recharger les données après mise à jour
+      fetchData(); 
     } catch (err) {
-      console.error(`Erreur lors de la mise à jour du statut de la réservation ${bookingId}:`, err);
-      setError("Erreur lors de la mise à jour du statut de la réservation.");
+      alert(`Erreur lors de la mise à jour du statut.`);
+      console.error(err);
     }
   };
-  
-  // ... (Affichage loading, error)
+
+  // --- Rendu ---
 
   if (loading) {
-    return <p className="text-center mt-10">Chargement du tableau de bord...</p>;
+    return <p>Chargement du tableau de bord...</p>;
   }
 
   if (error) {
-    return <p className="error-message">{error}</p>;
-  }
-
-  if (user?.role !== 'landlord') {
-    return <p className="error-message">Seuls les propriétaires ont accès au tableau de bord.</p>;
+    return <p className="error-message">Erreur : {error}</p>;
   }
 
   return (
     <div className="dashboard-container">
-      <h1>Mon tableau de bord</h1>
-      <Link to="/create-housing" className="dashboard-link">Créer une nouvelle annonce</Link>
-      
-      {/* --- Section Mes Annonces --- */}
-      <h3>Mes annonces ({userHousing.length})</h3>
-      <div className="housing-list">
-        {userHousing.length > 0 ? (
-          userHousing.map(housing => (
-            <LandlordHousingItem 
-              key={housing._id} 
-              housing={housing} 
-              onDelete={handleDeleteHousing}
-            />
-          ))
-        ) : (
-          <p>Vous n'avez pas encore publié d'annonce.</p>
-        )}
+      <h1>Tableau de Bord Propriétaire</h1>
+      <p>Bienvenue, {user.name} ({user.role})</p>
+
+      {/* SECTION ANNONCES */}
+      <div className="dashboard-section">
+        <h2>Mes Annonces</h2>
+        <Link to="/create-housing" className="btn-primary">Créer une nouvelle annonce</Link>
+        
+        <div className="housing-list">
+          {userHousing.length > 0 ? (
+            userHousing.map((housing) => (
+              // Utilise le composant de gestion pour afficher et gérer les actions
+              <LandlordHousingItem 
+                key={housing._id} 
+                housing={housing} 
+                onDelete={handleHousingDelete} 
+                // handleEdit est géré par la Link to /edit-housing/:id dans le composant si vous l'avez
+              />
+            ))
+          ) : (
+            <p>Vous n'avez pas encore d'annonces.</p>
+          )}
+        </div>
       </div>
 
-      {/* --- Section Mes Réservations --- */}
-      <h3>Réservations en attente ou confirmées ({bookings.length})</h3>
-      <div className="bookings-list">
+      {/* SECTION RÉSERVATIONS */}
+      <div className="dashboard-section">
+        <h2>Réservations en cours et confirmées ({bookings.length})</h2>
+        
         {bookings.length > 0 ? (
-          <div className="booking-grid">
-            {bookings.map((booking) => (
+          <div className="bookings-list">
+             {bookings.map((booking) => (
               <div key={booking._id} className={`booking-card booking-status-${booking.status}`}>
                 <p><strong>Logement :</strong> {booking.housing.title}</p>
                 <p><strong>Locataire :</strong> {booking.tenant.name}</p>
@@ -135,7 +144,7 @@ const Dashboard = () => {
                   </div>
                 )}
                 
-                {/* 🔑 Lien de messagerie avec l'ID du destinataire */}
+                {/* Lien de messagerie avec l'ID du destinataire */}
                 <Link to={`/conversations/start?user=${booking.tenant._id}`} className="btn-message">
                     Contacter le locataire 💬
                 </Link>
