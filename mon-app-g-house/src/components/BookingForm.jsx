@@ -1,167 +1,165 @@
 import React, { useState, useEffect } from 'react';
-// Import des hooks et composants Stripe
-import { useStripe, useElements, CardElement } from '@stripe/react-stripe-js';
-import { createBookingSession } from '../api/api';
+import { useStripe, useElements } from '@stripe/react-stripe-js';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import './BookingForm.css';
+// 🔑 L'importation manquante qui corrige l'erreur Vercel
+import { createBookingSession } from '../api/api'; 
 
-// Options de style pour CardElement (pour un meilleur look)
-const CARD_ELEMENT_OPTIONS = {
-    style: {
-      base: {
-        fontSize: '16px',
-        color: '#424770',
-        '::placeholder': {
-          color: '#aab7c4',
-        },
-      },
-      invalid: {
-        color: '#9e2146',
-      },
-    },
+// --- Fonctions utilitaires de calcul ---
+
+// Calcule le nombre de jours entre deux dates (inclusif/exclusif)
+const calculateTotalDays = (start, end) => {
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (startDate && endDate && endDate > startDate) {
+        const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
+        // Jours pleins (arrondi au jour supérieur)
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        return diffDays;
+    }
+    return 0;
 };
 
-const BookingForm = ({ housingId, price, landlordId }) => {
-    const { isLoggedIn, role } = useAuth();
-    const stripe = useStripe();
-    const elements = useElements();
+// Calcule le prix total basé sur le prix mensuel et le nombre de jours
+const calculateTotalPrice = (pricePerMonth, days) => {
+    if (days <= 0 || !pricePerMonth) return 0;
+    // Approximation journalière (prix mensuel / 30 jours)
+    const pricePerDay = pricePerMonth / 30.0; 
+    // Arrondi à deux décimales pour l'affichage
+    return (pricePerDay * days).toFixed(2); 
+};
 
+
+const BookingForm = ({ housingId, price, landlordId }) => {
+    // Hooks Stripe nécessaires pour la redirection
+    const stripe = useStripe(); 
+    const elements = useElements();
+    const navigate = useNavigate();
+    const { user } = useAuth(); // Pour vérifier l'authentification et le rôle
+    
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
-    const [totalPrice, setTotalPrice] = useState(0);
     const [loading, setLoading] = useState(false);
-    const [message, setMessage] = useState('');
     const [error, setError] = useState(null);
+    const [totalPrice, setTotalPrice] = useState(0);
 
-    // --- Calcul du prix total ---
+    // Mettre à jour le prix total lorsque les dates changent
     useEffect(() => {
-        if (startDate && endDate) {
-            const start = new Date(startDate);
-            const end = new Date(endDate);
-            const diffTime = Math.abs(end - start);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            
-            // On calcule le prix uniquement pour des durées valides (> 0 jours)
-            if (diffDays > 0) {
-                // On suppose que le prix est par mois. Adapté pour une estimation journalière ici (pour simplifier).
-                // Logique pour un prix mensuel : si la durée est > 30 jours, on applique le prix mensuel.
-                // Pour cette démo simple, utilisons un prix par Nuit pour la clarté :
-                const pricePerNight = price / 30; // Estimation simple
-                const calculatedPrice = Math.round(pricePerNight * diffDays);
-                setTotalPrice(calculatedPrice);
-            } else {
-                setTotalPrice(0);
-            }
-        }
+        const days = calculateTotalDays(startDate, endDate);
+        setTotalPrice(calculateTotalPrice(price, days));
     }, [startDate, endDate, price]);
 
-    // --- Soumission du formulaire ---
+    // Validation du formulaire et statut utilisateur
+    const isFormValid = startDate && endDate && new Date(endDate) > new Date(startDate) && totalPrice > 0;
+    const isLandlord = user && user.userId === landlordId;
+    const isAuthenticated = !!user;
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError(null);
-        setMessage('');
-        
-        if (!isLoggedIn) {
-            setError("Veuillez vous connecter pour faire une réservation.");
+
+        // Vérification de la validité de Stripe/Formulaire/Authentification
+        if (!stripe || !elements || !isFormValid) {
             return;
         }
 
-        if (role === 'landlord') {
-            setError("Les propriétaires ne peuvent pas réserver leurs propres logements.");
-            return;
-        }
-
-        if (totalPrice <= 0 || !startDate || !endDate || totalPrice > 500000) { // Limite anti-bug
-            setError("Veuillez choisir des dates de réservation valides.");
-            return;
-        }
-
-        if (!stripe || !elements) {
-            // Stripe.js n'a pas encore chargé.
+        if (!isAuthenticated) {
+            setError("Veuillez vous connecter pour effectuer une réservation.");
             return;
         }
 
         setLoading(true);
 
-        try {
-            // 1. Créer la session de paiement (Backend)
-            // Le backend retourne la `sessionId` et la `clientSecret` pour le paiement.
-            const sessionResponse = await createBookingSession(housingId, {
-                startDate,
-                endDate,
-                totalPrice // Prix calculé
-            });
-            
-            const { sessionId } = sessionResponse.data;
+        const bookingData = {
+            housingId,
+            startDate,
+            endDate,
+            totalAmount: totalPrice, // Le backend revalidera le prix
+        };
 
-            // 2. Rediriger l'utilisateur vers la page de paiement Stripe
-            const { error: stripeRedirectError } = await stripe.redirectToCheckout({
+        try {
+            // 1. Appel à l'API pour créer la session de paiement Stripe
+            const response = await createBookingSession(bookingData);
+            const { sessionId } = response.data;
+
+            // 2. Redirection vers la page de paiement Stripe
+            const result = await stripe.redirectToCheckout({
                 sessionId: sessionId,
             });
 
-            if (stripeRedirectError) {
-                setError(stripeRedirectError.message || "Erreur lors de la redirection vers le paiement.");
+            if (result.error) {
+                setError(result.error.message || 'Échec de la redirection vers le paiement.');
             }
 
-            // Note: Nous n'arrivons pas ici si la redirection réussit.
-            setMessage("Redirection vers le paiement...");
-
         } catch (err) {
-            console.error("Erreur lors de la création de la session de paiement:", err);
-            setError(err.response?.data?.message || "Erreur de connexion à l'API de paiement.");
+            console.error("Erreur API de réservation:", err);
+            // Afficher le message d'erreur du backend (ex: dates déjà prises)
+            setError(err.response?.data?.message || 'Erreur lors de la création de la session de paiement. Vérifiez les dates.');
         } finally {
             setLoading(false);
         }
     };
 
-    // --- Rendu ---
-    if (!isLoggedIn || role === 'landlord') {
-        return (
-            <div className="booking-form-box not-allowed-box">
-                {role === 'landlord' ? (
-                    <p>Ceci est votre annonce. Consultez votre tableau de bord pour les réservations.</p>
-                ) : (
-                    <p>🔑 Veuillez vous <Link to="/login">connecter</Link> en tant que Locataire pour réserver ce logement.</p>
-                )}
-            </div>
-        );
+    if (isLandlord) {
+        return <p className="text-xl font-bold text-red-500 p-4">Vous êtes le propriétaire de cette annonce et ne pouvez pas la réserver.</p>;
     }
 
-
     return (
-        <div className="booking-form-box">
-            <h2>Réserver maintenant</h2>
-            
-            <form onSubmit={handleSubmit}>
-                <label>
-                    Date de début:
-                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
-                </label>
+        <div className="bg-white p-6 rounded-lg shadow-lg max-w-sm mx-auto my-8">
+            <h3 className="text-2xl font-semibold mb-4 text-gray-800">Réserver ce logement</h3>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label htmlFor="start" className="block text-sm font-medium text-gray-700">Date d'arrivée</label>
+                    <input
+                        type="date"
+                        id="start"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        min={new Date().toISOString().split('T')[0]}
+                        required
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                </div>
+                <div>
+                    <label htmlFor="end" className="block text-sm font-medium text-gray-700">Date de départ</label>
+                    <input
+                        type="date"
+                        id="end"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        // La date de fin doit être au moins 1 jour après la date de début
+                        min={startDate ? new Date(new Date(startDate).getTime() + (24 * 60 * 60 * 1000)).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]}
+                        required
+                        disabled={!startDate}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                </div>
                 
-                <label>
-                    Date de fin:
-                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
-                </label>
-                
-                {/* Affichage du prix calculé */}
                 {totalPrice > 0 && (
-                    <p className="total-price">
-                        Prix total estimé pour {Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24))} jours : 
-                        <strong> {totalPrice.toFixed(2)} €</strong>
-                    </p>
+                    <div className="text-lg font-bold text-gray-800 pt-2 border-t border-gray-200">
+                        Total estimé ({calculateTotalDays(startDate, endDate)} jours): <span className="text-indigo-600">{totalPrice} €</span>
+                        <p className="text-xs font-normal text-gray-500 mt-1">
+                            (Basé sur {price}€/mois. Le prix final est calculé et validé par notre serveur.)
+                        </p>
+                    </div>
                 )}
 
-                {/* NOTE : Pour la session de paiement simple de Stripe, nous n'avons PAS besoin de CardElement ici, 
-                   car nous redirigeons vers la page d'accueil de Stripe. Si vous utilisiez 
-                   'Payment Intents' sans redirection, CardElement serait nécessaire. */}
+
+                {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
                 
-                <button type="submit" disabled={loading || totalPrice <= 0}>
-                    {loading ? 'Redirection...' : `Réserver et Payer ${totalPrice.toFixed(2)} €`}
+                <button
+                    type="submit"
+                    disabled={loading || !isFormValid || !isAuthenticated}
+                    className={`w-full py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                        loading || !isFormValid || !isAuthenticated
+                            ? 'bg-gray-400 cursor-not-allowed'
+                            : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+                    }`}
+                >
+                    {loading ? 'Redirection en cours...' : !isAuthenticated ? 'Se connecter pour réserver' : 'Réserver et Payer'}
                 </button>
             </form>
-
-            {message && <p className="success-message">{message}</p>}
-            {error && <p className="error-message">{error}</p>}
         </div>
     );
 };
