@@ -4,12 +4,13 @@ import axios from 'axios';
 // 1. CONFIGURATION DE L'INSTANCE AXIOS
 // ======================================================================
 
-// ATTENTION : REMPLACEZ CETTE VALEUR PAR L'URL DE VOTRE API RENDER
-// Dans un projet React/Vite, l'idéal est d'utiliser import.meta.env.VITE_API_URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://g-house-api.onrender.com/api';
+// Utilisez la variable d'environnement définie dans votre fichier .env.local/vite.config.js
+// VITE_API_URL devrait pointer vers l'URL de base de votre backend (ex: http://localhost:5000/api ou https://g-house-api.onrender.com/api)
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const api = axios.create({
     baseURL: API_BASE_URL,
+    // Le Content-Type par défaut est géré pour JSON. Il sera annulé pour FormData.
     headers: {
         'Content-Type': 'application/json',
     },
@@ -24,7 +25,7 @@ const api = axios.create({
  * à toutes les requêtes qui en ont besoin.
  */
 api.interceptors.request.use(config => {
-    // Récupère le token depuis le stockage local (ou tout autre gestionnaire d'état)
+    // Récupère le token depuis le stockage local
     const token = localStorage.getItem('token'); 
 
     // Si le token existe, l'ajoute à l'en-tête Authorization
@@ -41,55 +42,54 @@ api.interceptors.request.use(config => {
 
     return config;
 }, error => {
-    // Gestion des erreurs de requête (ex: token non récupérable)
+    // Gestion des erreurs de l'intercepteur de requête
     return Promise.reject(error);
 });
 
+
 // ======================================================================
-// 3. FONCTIONS D'APPEL API
+// 3. FONCTIONS D'API EXPORTÉES
 // ======================================================================
 
 // --- AUTHENTIFICATION (User.js) ---
 
 /**
  * Inscription d'un nouvel utilisateur : POST /register
- * @param {object} userData - Données d'inscription (name, email, password, role)
  */
-export const registerUser = (userData) => {
+export const register = (userData) => {
+    // userData doit contenir { name, email, password, role }
     return api.post('/register', userData);
 };
 
 /**
  * Connexion d'un utilisateur : POST /login
- * @param {object} credentials - Email et mot de passe ({email, password})
  */
-export const loginUser = (credentials) => {
-    // Note: Le stockage du token et la gestion du contexte se font dans AuthContext.
+export const login = (credentials) => {
+    // credentials doit contenir { email, password }
     return api.post('/login', credentials);
 };
 
-
-// --- LOGEMENTS (Housing.js) ---
+// --- GESTION DES LOGEMENTS (Housing.js) ---
 
 /**
- * Récupérer tous les logements avec options de filtrage/recherche : GET /housing
- * @param {object} params - Paramètres de requête (ex: { city: 'Paris', type: 'studio' })
+ * Récupérer la liste des logements (avec filtres optionnels) : GET /housing?city=...&price_min=...
+ * @param {object} params - Paramètres de la requête (filtres de recherche)
  */
 export const getHousingList = (params = {}) => {
+    // Les paramètres sont ajoutés automatiquement par Axios
     return api.get('/housing', { params });
 };
 
 /**
- * Récupérer les détails d'un logement : GET /housing/:id
- * @param {string} housingId - L'ID du logement
+ * Récupérer les détails d'un logement spécifique : GET /housing/:id
  */
-export const getHousingDetails = (housingId) => {
-    return api.get(`/housing/${housingId}`);
+export const getHousingDetails = (id) => {
+    return api.get(`/housing/${id}`);
 };
 
 /**
  * Créer un nouveau logement : POST /housing
- * @param {FormData} housingData - Les données du logement, y compris les fichiers images
+ * @param {FormData} housingData - FormData contenant les champs texte et les fichiers images
  */
 export const createHousing = (housingData) => {
     return api.post('/housing', housingData);
@@ -97,70 +97,33 @@ export const createHousing = (housingData) => {
 
 /**
  * Modifier un logement existant : PUT /housing/:id
- * @param {string} housingId - L'ID du logement à modifier
- * @param {FormData} housingData - Les données de mise à jour
+ * @param {string} id - L'ID du logement à modifier
+ * @param {FormData} housingData - FormData contenant les champs texte et les fichiers images
  */
-export const updateHousing = (housingId, housingData) => {
-    return api.put(`/housing/${housingId}`, housingData);
+export const updateHousing = (id, housingData) => {
+    return api.put(`/housing/${id}`, housingData);
 };
 
 /**
  * Supprimer un logement : DELETE /housing/:id
- * @param {string} housingId - L'ID du logement à supprimer
  */
-export const deleteHousing = (housingId) => {
-    return api.delete(`/housing/${housingId}`);
+export const deleteHousing = (id) => {
+    return api.delete(`/housing/${id}`);
 };
 
 /**
- * Récupérer les logements du propriétaire connecté : GET /user/housing
+ * Récupérer tous les logements d'un propriétaire (Landlord) : GET /user/housing
  */
 export const getUserHousing = () => {
     return api.get('/user/housing');
 };
 
-// --- RÉSERVATIONS (Booking.js) ---
-
-/**
- * Créer une session de paiement Stripe pour une réservation : POST /booking/create-checkout-session
- * @param {object} bookingData - Les détails de la réservation (housingId, startDate, endDate)
- */
-export const createStripeCheckoutSession = (bookingData) => {
-    return api.post('/booking/create-checkout-session', bookingData);
-};
-
-/**
- * Confirmer le statut d'une réservation (pour le webhook Stripe côté client si nécessaire) : POST /booking/confirm-status
- * Note : Normalement géré par le Webhook côté serveur.
- */
-export const confirmBookingStatus = (sessionId, bookingId) => {
-    return api.post('/booking/confirm-status', { sessionId, bookingId });
-};
-
-/**
- * Récupérer les réservations pour les logements du propriétaire connecté : GET /landlord/bookings
- */
-export const getBookings = () => {
-    return api.get('/landlord/bookings');
-};
-
-/**
- * Mettre à jour le statut d'une réservation : PUT /booking/:id/status
- * @param {string} bookingId - L'ID de la réservation
- * @param {string} status - Le nouveau statut ('confirmed' ou 'cancelled')
- */
-export const updateBookingStatus = (bookingId, status) => {
-    return api.put(`/booking/${bookingId}/status`, { status });
-};
-
 // --- MESSAGERIE (Conversation.js / Message.js) ---
 
 /**
- * Démarrer ou récupérer une conversation avec un autre utilisateur : POST /conversations/start
- * @param {string} recipientId - L'ID de l'autre utilisateur
- * @param {string} [housingId=null] - L'ID du logement (optionnel)
+ * Démarrer ou récupérer une conversation existante : POST /conversations/start
  */
-export const startOrGetConversation = (recipientId, housingId = null) => {
+export const startConversation = (recipientId, housingId = null) => {
     return api.post('/conversations/start', { recipientId, housingId });
 };
 
@@ -177,7 +140,6 @@ export const getConversationsList = () => {
 export const getMessages = (conversationId) => {
     return api.get(`/conversations/${conversationId}/messages`);
 };
-
 
 // --- DOCUMENTS DE PROFIL (ProfileDoc.js) ---
 
@@ -197,6 +159,44 @@ export const getProfileDocuments = () => {
 };
 
 
+// --- GESTION DES RÉSERVATIONS (Booking.js / Stripe) ---
+
+/**
+ * Créer une session de paiement Stripe et une pré-réservation : POST /bookings/create-session
+ * @param {object} bookingData - Données de la réservation (housingId, startDate, endDate)
+ * @returns {Promise<object>} - Promesse contenant { sessionId: string, bookingId: string }
+ */
+export const createBookingSession = (bookingData) => {
+    // La route de votre backend pour Stripe (index.js) est /api/bookings/create-session
+    return api.post('/bookings/create-session', bookingData);
+};
+
+/**
+ * Récupérer toutes les réservations liées aux logements du propriétaire : GET /user/bookings
+ */
+export const getBookings = () => {
+    return api.get('/user/bookings');
+};
+
+/**
+ * Mettre à jour le statut d'une réservation (pending, confirmed, cancelled) : PUT /bookings/:id/status
+ * @param {string} bookingId - L'ID de la réservation à modifier
+ * @param {string} status - Le nouveau statut ('confirmed' ou 'cancelled')
+ */
+export const updateBookingStatus = (bookingId, status) => {
+    return api.put(`/bookings/${bookingId}/status`, { status });
+};
+
+/**
+ * Confirmer le statut de réservation après un paiement réussi (Optionnel/Sécurité)
+ * NOTE: Normalement géré par le Webhook Stripe, ceci est une sécurité côté client.
+ */
+export const confirmBookingStatus = (sessionId, bookingId) => {
+    // Si cette route existe sur le backend, elle devrait revérifier le statut Stripe
+    return api.post('/bookings/confirm-status', { sessionId, bookingId });
+};
+
+
 // --- NOTIFICATIONS (Notification.js) ---
 
 /**
@@ -213,5 +213,8 @@ export const markNotificationAsRead = (notificationId) => {
     return api.put(`/notifications/${notificationId}/read`);
 };
 
-// Exporter l'instance configurée pour les utilisations directes si nécessaire
+// ======================================================================
+// 4. EXPORT PAR DÉFAUT (pour les appels de base sans fonction spécifique)
+// ======================================================================
+
 export default api;
