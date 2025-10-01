@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import api from '../services/api';
+import api from '../api/api'; 
 import { useAuth } from '../context/AuthContext'; // 🔑 Importation du contexte pour vérifier si le propriétaire est connecté
 import BookingForm from '../components/BookingForm'; // 🔑 Importation du formulaire de réservation
 import './HousingDetails.css';
