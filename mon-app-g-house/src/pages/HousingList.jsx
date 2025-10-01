@@ -1,8 +1,5 @@
 import React, { useState, useEffect } from 'react';
-// import axios from 'axios'; // ❌ Suppression de l'import axios direct
-import { Link } from 'react-router-dom';
 import api from '../api/api'; // ✅ Le chemin d'importation de l'API est corrigé : '../api/api'
-
 const HousingList = () => {
   const [housingList, setHousingList] = useState([]);
   const [loading, setLoading] = useState(true);
