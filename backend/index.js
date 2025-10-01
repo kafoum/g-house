@@ -13,7 +13,7 @@ const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
 const path = require('path');
-const cors = require('cors'); // 🔑 GARDER LA DÉCLARATION UNIQUE ICI
+const cors = require('cors'); 
 
 // Importe les modules WebSocket
 const http = require('http');
@@ -40,7 +40,7 @@ const Booking = require('./models/Booking');
 const ProfileDoc = require('./models/ProfileDoc');
 const Notification = require('./models/Notification');
 const Conversation = require('./models/Conversation');
-const Message = require('./models/Message');
+const Message = require = require('./models/Message'); // 💡 Assurez-vous que le message est importé correctement
 
 // Crée une instance de l'application Express
 const app = express();
@@ -54,18 +54,23 @@ mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('Connexion à MongoDB réussie !'))
     .catch(() => console.log('Connexion à MongoDB échouée !'));
 
-// 🔑 CONFIGURATION CORS (Doit être avant le middleware JSON)
+
+// ----------------------------------------------------
+// 🔑 MIDDLEWARES (CORRECTION CORS ici pour éviter le blocage)
+// ----------------------------------------------------
+
+// 1. CONFIGURATION CORS (DOIT ÊTRE EN PREMIER)
 app.use(cors({
     origin: [
         'http://localhost:5173', // Pour le développement local
-        process.env.VERCEL_FRONTEND_URL // L'URL de votre frontend déployé sur Vercel
+        process.env.VERCEL_FRONTEND_URL // 🔑 L'URL de votre frontend Vercel (ex: https://g-house.vercel.app)
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
     optionsSuccessStatus: 204
 }));
 
-// 🔑 Middleware pour parser les requêtes JSON, SAUF pour la route de webhook Stripe
+// 2. Middleware pour parser les requêtes JSON, SAUF pour la route de webhook Stripe
 app.use(express.json({
     verify: (req, res, buf) => {
         if (req.originalUrl === '/api/webhook') {
@@ -87,7 +92,6 @@ app.use((req, res, next) => {
 
 // Route d'inscription
 app.post('/api/register', async (req, res) => {
-    // ... (Votre logique d'inscription existante) ...
     try {
         const { name, email, password, role } = req.body;
         
@@ -111,7 +115,6 @@ app.post('/api/register', async (req, res) => {
 
 // Route de connexion
 app.post('/api/login', async (req, res) => {
-    // ... (Votre logique de connexion existante) ...
     try {
         const { email, password } = req.body;
 
@@ -144,7 +147,7 @@ app.post('/api/login', async (req, res) => {
 
 
 // ----------------------------------------------------
-// 🔑 STRIPE PAYMENT ROUTES (NOUVELLES ROUTES)
+// 🔑 STRIPE PAYMENT ROUTES
 // ----------------------------------------------------
 
 // Route protégée pour créer une session de paiement Stripe
@@ -214,7 +217,7 @@ app.post('/api/bookings/:housingId/create-session', authMiddleware, async (req, 
     }
 });
 
-// 🔑 ROUTE DE WEBHOOK STRIPE (NON PROTÉGÉE par authMiddleware)
+// 🔑 ROUTE DE WEBHOOK STRIPE (NON PROTÉGÉE)
 app.post('/api/webhook', async (req, res) => {
     const signature = req.headers['stripe-signature'];
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -277,7 +280,239 @@ app.post('/api/webhook', async (req, res) => {
 
 
 // ----------------------------------------------------
-// FIN DES ROUTES API (Votre logique existante)
+// ROUTES LOGEMENT (Exemple de vos routes existantes)
+// ----------------------------------------------------
+
+// Route de création de logement
+app.post('/api/housing', authMiddleware, upload.array('images', 5), async (req, res) => {
+    // ... (Votre logique de création/upload existante) ...
+    try {
+        const { title, description, price, city, address, zipCode, type, amenities } = req.body;
+        const landlordId = req.userData.userId; 
+
+        // 1. Upload des images vers Cloudinary
+        const uploadPromises = req.files.map(file => {
+            return cloudinary.uploader.upload(
+                `data:${file.mimetype};base64,${file.buffer.toString('base64')}`
+            );
+        });
+        const uploadResults = await Promise.all(uploadPromises);
+        const imageUrls = uploadResults.map(result => result.secure_url);
+
+        // 2. Création du logement
+        const newHousing = new Housing({
+            title,
+            description,
+            price,
+            location: { city, address, zipCode },
+            type,
+            amenities: amenities ? amenities.split(',').map(a => a.trim()) : [],
+            landlord: landlordId,
+            images: imageUrls
+        });
+        await newHousing.save();
+
+        res.status(201).json({ message: 'Annonce créée avec succès !', housing: newHousing });
+
+    } catch (error) {
+        console.error('Erreur lors de la création du logement:', error);
+        res.status(500).json({ message: 'Échec de la création du logement.' });
+    }
+});
+
+// Route de modification de logement
+app.put('/api/housing/:id', authMiddleware, upload.array('images', 5), async (req, res) => {
+    // ... (Votre logique de modification existante) ...
+    try {
+        const { id } = req.params;
+        const landlordId = req.userData.userId;
+        const { title, description, price, city, address, zipCode, type, amenities } = req.body;
+
+        const housing = await Housing.findById(id);
+        if (!housing) {
+            return res.status(404).json({ message: 'Logement non trouvé.' });
+        }
+        if (housing.landlord.toString() !== landlordId.toString()) {
+            return res.status(403).json({ message: 'Accès refusé. Vous n\'êtes pas le propriétaire de cette annonce.' });
+        }
+
+        let imageUrls = housing.images;
+        // Si de nouvelles images sont uploadées, on les ajoute/remplace
+        if (req.files && req.files.length > 0) {
+            const uploadPromises = req.files.map(file => {
+                return cloudinary.uploader.upload(
+                    `data:${file.mimetype};base64,${file.buffer.toString('base64')}`
+                );
+            });
+            const uploadResults = await Promise.all(uploadPromises);
+            imageUrls = uploadResults.map(result => result.secure_url);
+            // Pour l'instant, on remplace juste les anciennes images
+        }
+
+        const updatedHousing = await Housing.findByIdAndUpdate(id, {
+            title,
+            description,
+            price,
+            location: { city, address, zipCode },
+            type,
+            amenities: amenities ? amenities.split(',').map(a => a.trim()) : [],
+            images: imageUrls
+        }, { new: true });
+
+        res.status(200).json({ message: 'Annonce mise à jour avec succès !', housing: updatedHousing });
+
+    } catch (error) {
+        console.error('Erreur lors de la mise à jour du logement:', error);
+        res.status(500).json({ message: 'Échec de la mise à jour du logement.' });
+    }
+});
+
+// Route de suppression de logement
+app.delete('/api/housing/:id', authMiddleware, async (req, res) => {
+    // ... (Votre logique de suppression existante) ...
+    try {
+        const { id } = req.params;
+        const landlordId = req.userData.userId;
+
+        const housing = await Housing.findById(id);
+        if (!housing) {
+            return res.status(404).json({ message: 'Logement non trouvé.' });
+        }
+        if (housing.landlord.toString() !== landlordId.toString()) {
+            return res.status(403).json({ message: 'Accès refusé.' });
+        }
+
+        await Housing.findByIdAndDelete(id);
+        res.status(200).json({ message: 'Annonce supprimée avec succès.' });
+
+    } catch (error) {
+        console.error('Erreur lors de la suppression du logement:', error);
+        res.status(500).json({ message: 'Échec de la suppression du logement.' });
+    }
+});
+
+
+// Route pour récupérer tous les logements
+app.get('/api/housing', async (req, res) => {
+    // ... (Votre logique de liste et de filtrage existante) ...
+    try {
+        const { city, type, price_min, price_max } = req.query;
+        let query = {};
+
+        if (city) {
+            query['location.city'] = new RegExp(city, 'i'); // Recherche insensible à la casse
+        }
+        if (type) {
+            query.type = type;
+        }
+        if (price_min || price_max) {
+            query.price = {};
+            if (price_min) {
+                query.price.$gte = parseInt(price_min);
+            }
+            if (price_max) {
+                query.price.$lte = parseInt(price_max);
+            }
+        }
+
+        const housing = await Housing.find(query).limit(20);
+        res.status(200).json({ housing });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors de la récupération des annonces.' });
+    }
+});
+
+// Route pour récupérer un logement par ID
+app.get('/api/housing/:id', async (req, res) => {
+    // ... (Votre logique de détail existante) ...
+    try {
+        const { id } = req.params;
+        const housing = await Housing.findById(id).populate('landlord', 'name email');
+        if (!housing) {
+            return res.status(404).json({ message: 'Logement non trouvé.' });
+        }
+        res.status(200).json({ housing });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors de la récupération du logement.' });
+    }
+});
+
+
+// ----------------------------------------------------
+// ROUTES MESSAGERIE
+// ----------------------------------------------------
+
+// Route pour démarrer ou retrouver une conversation avec un propriétaire
+app.post('/api/conversations', authMiddleware, async (req, res) => {
+    try {
+        const { housingId, recipientId, subject } = req.body;
+        const senderId = req.userData.userId;
+
+        // Tente de trouver une conversation existante pour ce logement et ces participants
+        let conversation = await Conversation.findOne({
+            housing: housingId,
+            participants: { $all: [senderId, recipientId] }
+        });
+
+        if (!conversation) {
+            // Créer une nouvelle conversation
+            conversation = new Conversation({
+                participants: [senderId, recipientId],
+                housing: housingId,
+                subject: subject || 'Conversation sans sujet'
+            });
+            await conversation.save();
+        }
+
+        res.status(200).json({ conversationId: conversation._id });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Échec de la création/récupération de la conversation.' });
+    }
+});
+
+// Route pour lister les conversations de l'utilisateur
+app.get('/api/conversations', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.userData.userId;
+
+        const conversations = await Conversation.find({
+            participants: userId
+        })
+        .populate('participants', 'name')
+        .sort({ createdAt: -1 });
+
+        res.status(200).json({ conversations });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des conversations.' });
+    }
+});
+
+// Route pour récupérer les messages d'une conversation
+app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.userData.userId;
+        
+        const conversation = await Conversation.findById(id);
+        if (!conversation || !conversation.participants.includes(userId)) {
+            return res.status(403).json({ message: 'Accès refusé. Vous ne faites pas partie de cette conversation.' });
+        }
+        
+        const messages = await Message.find({ conversation: id }).populate('sender', 'name');
+        res.status(200).json({ messages });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des messages.' });
+    }
+});
+
+// ----------------------------------------------------
+// FIN DES ROUTES API
 // ----------------------------------------------------
 
 // Route pour la documentation de l'API
