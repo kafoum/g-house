@@ -5,7 +5,7 @@ import axios from 'axios';
 // ======================================================================
 
 // ATTENTION : REMPLACEZ CETTE VALEUR PAR L'URL DE VOTRE API RENDER
-// Utilisez import.meta.env.VITE_API_URL pour un environnement Vite/React
+// Dans un projet React/Vite, l'idéal est d'utiliser import.meta.env.VITE_API_URL
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://g-house-api.onrender.com/api';
 
 const api = axios.create({
@@ -24,7 +24,7 @@ const api = axios.create({
  * à toutes les requêtes qui en ont besoin.
  */
 api.interceptors.request.use(config => {
-    // Récupère le token depuis le stockage local
+    // Récupère le token depuis le stockage local (ou tout autre gestionnaire d'état)
     const token = localStorage.getItem('token'); 
 
     // Si le token existe, l'ajoute à l'en-tête Authorization
@@ -34,149 +34,155 @@ api.interceptors.request.use(config => {
     }
 
     // Le Content-Type doit être supprimé pour les requêtes FormData (upload de fichiers)
+    // Axios le gère automatiquement si le body est un FormData.
     if (config.data instanceof FormData) {
         delete config.headers['Content-Type'];
     }
 
     return config;
 }, error => {
+    // Gestion des erreurs de requête (ex: token non récupérable)
     return Promise.reject(error);
 });
 
-
 // ======================================================================
-// 3. FONCTIONS D'EXPOSITION DE L'API
+// 3. FONCTIONS D'APPEL API
 // ======================================================================
 
 // --- AUTHENTIFICATION (User.js) ---
 
 /**
- * Inscription d'un nouvel utilisateur : POST /api/register
+ * Inscription d'un nouvel utilisateur : POST /register
+ * @param {object} userData - Données d'inscription (name, email, password, role)
  */
-export const register = (formData) => {
-    return api.post('/register', formData);
+export const registerUser = (userData) => {
+    return api.post('/register', userData);
 };
 
 /**
- * Connexion d'un utilisateur : POST /api/login
+ * Connexion d'un utilisateur : POST /login
+ * @param {object} credentials - Email et mot de passe ({email, password})
  */
-export const login = (credentials) => {
+export const loginUser = (credentials) => {
+    // Note: Le stockage du token et la gestion du contexte se font dans AuthContext.
     return api.post('/login', credentials);
 };
 
 
-// --- GESTION DES LOGEMENTS (Housing.js) ---
+// --- LOGEMENTS (Housing.js) ---
 
 /**
- * Récupérer la liste des logements (avec filtres optionnels) : GET /api/housing
- * @param {object} [params] - Paramètres de filtre (city, price_min, price_max, type)
+ * Récupérer tous les logements avec options de filtrage/recherche : GET /housing
+ * @param {object} params - Paramètres de requête (ex: { city: 'Paris', type: 'studio' })
  */
 export const getHousingList = (params = {}) => {
     return api.get('/housing', { params });
 };
 
 /**
- * Récupérer les détails d'un logement : GET /api/housing/:id
+ * Récupérer les détails d'un logement : GET /housing/:id
+ * @param {string} housingId - L'ID du logement
  */
-export const getHousingDetails = (id) => {
-    return api.get(`/housing/${id}`);
+export const getHousingDetails = (housingId) => {
+    return api.get(`/housing/${housingId}`);
 };
 
 /**
- * Créer une nouvelle annonce de logement : POST /api/housing
- * @param {FormData} housingData - FormData contenant les champs de l'annonce et les fichiers images
+ * Créer un nouveau logement : POST /housing
+ * @param {FormData} housingData - Les données du logement, y compris les fichiers images
  */
 export const createHousing = (housingData) => {
     return api.post('/housing', housingData);
 };
 
 /**
- * Mettre à jour une annonce de logement : PUT /api/housing/:id
- * @param {string} id - L'ID du logement à mettre à jour
- * @param {FormData} housingData - FormData contenant les champs de l'annonce et les nouveaux fichiers images
+ * Modifier un logement existant : PUT /housing/:id
+ * @param {string} housingId - L'ID du logement à modifier
+ * @param {FormData} housingData - Les données de mise à jour
  */
-export const updateHousing = (id, housingData) => {
-    return api.put(`/housing/${id}`, housingData);
+export const updateHousing = (housingId, housingData) => {
+    return api.put(`/housing/${housingId}`, housingData);
 };
 
 /**
- * Supprimer une annonce de logement : DELETE /api/housing/:id
+ * Supprimer un logement : DELETE /housing/:id
+ * @param {string} housingId - L'ID du logement à supprimer
  */
-export const deleteHousing = (id) => {
-    return api.delete(`/housing/${id}`);
+export const deleteHousing = (housingId) => {
+    return api.delete(`/housing/${housingId}`);
 };
 
 /**
- * Récupérer les logements du propriétaire connecté : GET /api/user/housing
+ * Récupérer les logements du propriétaire connecté : GET /user/housing
  */
 export const getUserHousing = () => {
     return api.get('/user/housing');
 };
 
-
-// --- GESTION DES RÉSERVATIONS (Booking.js) ---
+// --- RÉSERVATIONS (Booking.js) ---
 
 /**
- * Récupérer toutes les réservations liées aux logements de l'utilisateur (pour le propriétaire) : GET /api/bookings
+ * Créer une session de paiement Stripe pour une réservation : POST /booking/create-checkout-session
+ * @param {object} bookingData - Les détails de la réservation (housingId, startDate, endDate)
  */
-export const getBookings = () => {
-    return api.get('/bookings');
+export const createStripeCheckoutSession = (bookingData) => {
+    return api.post('/booking/create-checkout-session', bookingData);
 };
 
 /**
- * Mettre à jour le statut d'une réservation : PUT /api/bookings/:id/status
- * @param {string} bookingId - L'ID de la réservation à mettre à jour
+ * Confirmer le statut d'une réservation (pour le webhook Stripe côté client si nécessaire) : POST /booking/confirm-status
+ * Note : Normalement géré par le Webhook côté serveur.
+ */
+export const confirmBookingStatus = (sessionId, bookingId) => {
+    return api.post('/booking/confirm-status', { sessionId, bookingId });
+};
+
+/**
+ * Récupérer les réservations pour les logements du propriétaire connecté : GET /landlord/bookings
+ */
+export const getBookings = () => {
+    return api.get('/landlord/bookings');
+};
+
+/**
+ * Mettre à jour le statut d'une réservation : PUT /booking/:id/status
+ * @param {string} bookingId - L'ID de la réservation
  * @param {string} status - Le nouveau statut ('confirmed' ou 'cancelled')
  */
 export const updateBookingStatus = (bookingId, status) => {
-    return api.put(`/bookings/${bookingId}/status`, { status });
+    return api.put(`/booking/${bookingId}/status`, { status });
 };
 
-
-// 🔑 --- PAIEMENT (Stripe) ---
-
-/**
- * Créer une session de paiement Stripe pour une réservation : POST /api/create-checkout-session
- * @param {object} bookingData - Données de la réservation (housingId, startDate, endDate, totalAmount, landlordId)
- * @returns {Promise<{sessionId: string, bookingId: string}>} - L'ID de session Stripe et l'ID de la réservation temporaire
- */
-export const createPaymentSession = (bookingData) => {
-    return api.post('/create-checkout-session', bookingData);
-};
-
-
-// --- MESSAGERIE (Conversation.js, Message.js) ---
+// --- MESSAGERIE (Conversation.js / Message.js) ---
 
 /**
- * Démarrer une conversation ou récupérer l'existante : POST /api/conversations/start
- * @param {string} recipientId - L'ID de l'autre participant
- * @param {string} [housingId] - L'ID du logement si la conversation est initiée depuis une annonce
+ * Démarrer ou récupérer une conversation avec un autre utilisateur : POST /conversations/start
+ * @param {string} recipientId - L'ID de l'autre utilisateur
+ * @param {string} [housingId=null] - L'ID du logement (optionnel)
  */
-export const startConversation = (recipientId, housingId = null) => {
+export const startOrGetConversation = (recipientId, housingId = null) => {
     return api.post('/conversations/start', { recipientId, housingId });
 };
 
 /**
- * Récupérer la liste des conversations de l'utilisateur : GET /api/conversations
+ * Récupérer la liste des conversations de l'utilisateur : GET /conversations
  */
 export const getConversationsList = () => {
     return api.get('/conversations');
 };
 
 /**
- * Récupérer les messages d'une conversation : GET /api/conversations/:id/messages
+ * Récupérer les messages d'une conversation : GET /conversations/:id/messages
  */
 export const getMessages = (conversationId) => {
     return api.get(`/conversations/${conversationId}/messages`);
 };
 
-// Note : L'envoi de messages se fait par WebSocket
-
 
 // --- DOCUMENTS DE PROFIL (ProfileDoc.js) ---
 
 /**
- * Télécharger un document de profil : POST /api/user/documents
+ * Télécharger un document de profil : POST /user/documents
  * @param {FormData} docData - FormData contenant 'docType' et le fichier
  */
 export const uploadProfileDocument = (docData) => {
@@ -184,7 +190,7 @@ export const uploadProfileDocument = (docData) => {
 };
 
 /**
- * Récupérer la liste des documents de l'utilisateur : GET /api/user/documents
+ * Récupérer la liste des documents de l'utilisateur : GET /user/documents
  */
 export const getProfileDocuments = () => {
     return api.get('/user/documents');
@@ -194,22 +200,18 @@ export const getProfileDocuments = () => {
 // --- NOTIFICATIONS (Notification.js) ---
 
 /**
- * Récupérer les notifications de l'utilisateur : GET /api/notifications
+ * Récupérer les notifications de l'utilisateur : GET /notifications
  */
 export const getNotifications = () => {
     return api.get('/notifications');
 };
 
 /**
- * Marquer une notification comme lue : PUT /api/notifications/:id/read
+ * Marquer une notification comme lue : PUT /notifications/:id/read
  */
 export const markNotificationAsRead = (notificationId) => {
     return api.put(`/notifications/${notificationId}/read`);
 };
 
-// ======================================================================
-// 4. EXPORT PAR DÉFAUT (L'instance axios brute)
-// ======================================================================
-
-// Exportez l'instance par défaut pour les usages génériques si nécessaire
+// Exporter l'instance configurée pour les utilisations directes si nécessaire
 export default api;
