@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+// ✅ CORRECTION : Importation du chemin d'API correct et des fonctions nommées
 import { createHousing, updateHousing, getHousingDetails } from '../api/api'; 
 import './CreateHousing.css'; // Pour les styles que vous avez fournis
 
@@ -34,7 +35,6 @@ const CreateHousing = () => {
       const fetchHousingData = async () => {
         setLoading(true);
         try {
-          // L'intercepteur Axios ajoute le token, mais cette route GET est publique.
           const response = await getHousingDetails(id); 
           const housing = response.data.housing; 
 
@@ -48,14 +48,13 @@ const CreateHousing = () => {
               zipCode: housing.location.zipCode
             },
             type: housing.type,
-            // Convertit le tableau d'équipements en chaîne de caractères pour le formulaire
+            // Convertit le tableau d'amenities en une chaîne séparée par des virgules pour le formulaire
             amenities: housing.amenities.join(', ')
           });
-          // Stocke les URLs des images existantes pour l'affichage (si besoin)
+          // Stocke les URLs des images existantes pour l'aperçu
           setExistingImages(housing.images || []);
-          
         } catch (err) {
-          console.error("Erreur lors du chargement de l'annonce :", err);
+          console.error(err);
           setError("Erreur lors du chargement de l'annonce pour la modification.");
         } finally {
           setLoading(false);
@@ -65,88 +64,86 @@ const CreateHousing = () => {
     }
   }, [id, isEditMode]);
 
-
-  // --- Gestion des changements de formulaire ---
+  // --- Gestion des changements dans les champs de texte et sélections ---
   const handleChange = (e) => {
     const { name, value } = e.target;
-    
     // Gère les champs imbriqués (location.city, location.address, etc.)
     if (name in formData.location) {
       setFormData(prev => ({
         ...prev,
-        location: {
-          ...prev.location,
-          [name]: value
-        }
+        location: { ...prev.location, [name]: value }
       }));
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
+    // Efface le message de succès/erreur au début de la saisie
+    setMessage('');
+    setError(null);
   };
 
-  // Gère la sélection des fichiers image
+  // --- Gestion du changement de fichiers (images) ---
   const handleFileChange = (e) => {
-    // Stocke la liste des fichiers sélectionnés par l'utilisateur
+    // Stocke tous les fichiers sélectionnés
     setImages(Array.from(e.target.files));
   };
 
-
-  // --- Soumission du formulaire ---
+  // --- Soumission du formulaire (Création ou Modification) ---
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError(null);
     setMessage('');
+    setError(null);
     setLoading(true);
 
-    try {
-      // 1. Préparation de FormData pour l'envoi de données et de fichiers
-      const formToSend = new FormData();
-      
-      // Ajout des champs de données de base
-      formToSend.append('title', formData.title);
-      formToSend.append('description', formData.description);
-      formToSend.append('price', formData.price);
-      formToSend.append('type', formData.type);
-      
-      // Les équipements sont envoyés sous forme de tableau (séparé par des virgules)
-      formToSend.append('amenities', formData.amenities); 
-      
-      // Ajout des données de localisation
-      formToSend.append('location.address', formData.location.address);
-      formToSend.append('location.city', formData.location.city);
-      formToSend.append('location.zipCode', formData.location.zipCode);
-      
-      // Ajout des fichiers image
-      images.forEach(file => {
-        // Le nom du champ doit correspondre à celui attendu par Multer/Cloudinary (e.g., 'images')
-        formToSend.append('images', file); 
-      });
+    // 🔑 Étape clé : Création de FormData pour l'upload de fichiers
+    const data = new FormData();
+    data.append('title', formData.title);
+    data.append('description', formData.description);
+    data.append('price', formData.price);
+    data.append('location_address', formData.location.address);
+    data.append('location_city', formData.location.city);
+    data.append('location_zipCode', formData.location.zipCode);
+    data.append('type', formData.type);
+    data.append('amenities', formData.amenities);
 
-      // 2. Appel à l'API (Création ou Modification)
+    // Ajout des NOUVELLES images à l'objet FormData
+    images.forEach(image => {
+      data.append('images', image);
+    });
+    
+    // Si nous sommes en mode édition et que de nouvelles images ont été sélectionnées, 
+    // l'API devra gérer le remplacement ou l'ajout (selon sa logique).
+    // Si aucune nouvelle image n'est sélectionnée en mode édition, l'API conserve les anciennes.
+    
+    try {
+      let response;
       if (isEditMode) {
-        // En mode édition, les images existantes ne sont pas renvoyées. 
-        // L'API ne gère que l'ajout ou le remplacement des NOUVELLES images.
-        await updateHousing(id, formToSend);
-        setMessage("Annonce modifiée avec succès ! Redirection...");
+        // Mode modification : PUT /api/housing/:id
+        response = await updateHousing(id, data);
+        setMessage('Annonce modifiée avec succès !');
       } else {
-        await createHousing(formToSend);
-        setMessage("Annonce créée avec succès ! Redirection...");
+        // Mode création : POST /api/housing
+        response = await createHousing(data);
+        setMessage('Annonce créée avec succès !');
+        // Réinitialiser le formulaire après la création
+        setFormData(initialFormData);
+        setImages([]);
       }
-      
-      // 3. Redirection vers le tableau de bord après succès
+
+      // Rediriger vers le tableau de bord après un court délai
       setTimeout(() => {
-        navigate('/dashboard');
-      }, 1500); 
+          navigate('/dashboard');
+      }, 1500);
 
     } catch (err) {
-      // Axios place l'erreur dans error.response pour les statuts HTTP 4xx/5xx
-      const errorMessage = err.response?.data?.message || `Erreur lors de ${isEditMode ? 'la modification' : 'la création'} de l'annonce.`;
-      setError(errorMessage);
-      console.error(errorMessage, err);
+      console.error("Erreur lors de la soumission de l'annonce :", err);
+      // Récupère le message d'erreur spécifique de l'API
+      const errMsg = err.response?.data?.message || `Erreur lors de ${isEditMode ? 'la modification' : 'la création'} de l'annonce.`;
+      setError(errMsg);
     } finally {
       setLoading(false);
     }
   };
+
 
   if (loading && isEditMode) {
     return <p>Chargement des données de l'annonce...</p>;
@@ -154,16 +151,63 @@ const CreateHousing = () => {
 
   return (
     <div className="create-housing-container">
-      <h1>{isEditMode ? `Modifier : ${formData.title}` : 'Créer une nouvelle annonce'}</h1>
-      
+      <h2>{isEditMode ? 'Modifier votre annonce' : 'Créer une nouvelle annonce'}</h2>
+
       <form onSubmit={handleSubmit} className="create-housing-form">
         
-        {/* Champs de base */}
-        <input type="text" name="title" placeholder="Titre de l'annonce" value={formData.title} onChange={handleChange} required />
-        <textarea name="description" placeholder="Description détaillée" value={formData.description} onChange={handleChange} required />
-        <input type="number" name="price" placeholder="Prix par mois (en €)" value={formData.price} onChange={handleChange} required />
+        {/* Champs principaux */}
+        <input 
+          type="text" 
+          name="title" 
+          placeholder="Titre de l'annonce" 
+          value={formData.title} 
+          onChange={handleChange} 
+          required 
+        />
+        <textarea 
+          name="description" 
+          placeholder="Description détaillée" 
+          value={formData.description} 
+          onChange={handleChange} 
+          required 
+        />
+        <input 
+          type="number" 
+          name="price" 
+          placeholder="Prix par mois (€)" 
+          value={formData.price} 
+          onChange={handleChange} 
+          required 
+        />
         
-        {/* Type de logement */}
+        {/* Localisation */}
+        <h3>Localisation</h3>
+        <input 
+          type="text" 
+          name="city" 
+          placeholder="Ville" 
+          value={formData.location.city} 
+          onChange={handleChange} 
+          required 
+        />
+        <input 
+          type="text" 
+          name="address" 
+          placeholder="Adresse" 
+          value={formData.location.address} 
+          onChange={handleChange} 
+          required 
+        />
+        <input 
+          type="text" 
+          name="zipCode" 
+          placeholder="Code postal" 
+          value={formData.location.zipCode} 
+          onChange={handleChange} 
+          required 
+        />
+        
+        {/* Type et équipements */}
         <label htmlFor="type">Type de logement</label>
         <select name="type" id="type" value={formData.type} onChange={handleChange}>
           <option value="chambre">Chambre</option>
@@ -172,16 +216,15 @@ const CreateHousing = () => {
           <option value="T2">T2</option>
         </select>
         
-        {/* Localisation */}
-        <h3>Localisation</h3>
-        <input type="text" name="city" placeholder="Ville" value={formData.location.city} onChange={handleChange} required />
-        <input type="text" name="address" placeholder="Adresse complète" value={formData.location.address} onChange={handleChange} required />
-        <input type="text" name="zipCode" placeholder="Code postal" value={formData.location.zipCode} onChange={handleChange} required />
-        
-        {/* Équipements */}
-        <input type="text" name="amenities" placeholder="Équipements (séparés par des virgules : Wifi, Parking, Balcon)" value={formData.amenities} onChange={handleChange} />
-        
-        {/* Images existantes (uniquement en mode édition) */}
+        <input 
+          type="text" 
+          name="amenities" 
+          placeholder="Équipements (séparés par des virgules : ex. Wifi, Lave-linge)" 
+          value={formData.amenities} 
+          onChange={handleChange} 
+        />
+
+        {/* Aperçu des images existantes (mode édition) */}
         {isEditMode && existingImages.length > 0 && (
           <div>
             <h4>Images actuelles ({existingImages.length})</h4>
@@ -203,8 +246,16 @@ const CreateHousing = () => {
 
         {/* Upload d'images */}
         <label htmlFor="images">Télécharger les images (choisissez plusieurs fichiers)</label>
-        <input type="file" name="images" id="images" onChange={handleFileChange} multiple accept="image/*" />
+        <input 
+          type="file" 
+          name="images" 
+          id="images" 
+          onChange={handleFileChange} 
+          multiple 
+          accept="image/*" 
+        />
         
+        {/* Bouton de soumission */}
         <button type="submit" disabled={loading}>
           {loading ? 'Traitement...' : isEditMode ? 'Sauvegarder les modifications' : 'Créer l\'annonce'}
         </button>
