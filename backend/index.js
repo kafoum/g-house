@@ -117,7 +117,10 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
     try {
         const { email, password } = req.body;
-
+        // 1. Validation de base
+        if (!email || !password) {
+            return res.status(400).json({ message: 'Veuillez fournir un email et un mot de passe.' });
+        }
         // 1. Trouver l'utilisateur
         const user = await User.findOne({ email });
         if (!user) {
