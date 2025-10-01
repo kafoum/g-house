@@ -6,7 +6,7 @@ import axios from 'axios';
 
 // ATTENTION : REMPLACEZ CETTE VALEUR PAR L'URL DE VOTRE API RENDER
 // Dans un projet React/Vite, l'idéal est d'utiliser import.meta.env.VITE_API_URL
-const API_BASE_URL = import.meta.env.VITE_API_URL;
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://g-house-api.onrender.com/api';
 
 const api = axios.create({
     baseURL: API_BASE_URL,
