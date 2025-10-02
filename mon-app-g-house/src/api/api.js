@@ -1,4 +1,4 @@
-// Fichier : frontend/src/api/api.js
+// Fichier : frontend/src/api/api.js (Version Finale)
 
 import axios from 'axios';
 
@@ -56,7 +56,6 @@ export const login = (credentials) => {
 // ======================================================================
 
 export const createHousing = (housingData) => {
-    // La route d'upload est souvent /housing, et le middleware multer gère l'upload
     return api.post('/housing', housingData); 
 };
 
@@ -64,8 +63,17 @@ export const getHousingList = (params) => {
     return api.get('/housing', { params });
 };
 
+// Fonction correcte (au singulier)
 export const getHousingDetail = (id) => {
     return api.get(`/housing/${id}`);
+};
+
+/**
+ * 🔑 CORRECTION VERCEL : Ajout de la fonction manquante (au pluriel) pour la compatibilité avec CreateHousing.jsx
+ * Elle est un alias pour la fonction correcte `getHousingDetail`.
+ */
+export const getHousingDetails = (id) => {
+    return getHousingDetail(id); 
 };
 
 export const deleteHousing = (id) => {
@@ -99,16 +107,12 @@ export const getConversationsList = () => {
     return api.get('/conversations');
 };
 
-/**
- * Fonction pour démarrer une nouvelle conversation ou en trouver une existante.
- */
 export const startConversation = (housingId, recipientId) => {
     return api.post('/conversations/start', { housingId, recipientId });
 };
 
 /**
- * 🔑 AJOUT CRITIQUE (Pour corriger l'erreur Vercel)
- * Récupère les détails d'une conversation (participants, logement).
+ * Récupère les détails d'une conversation (pour corriger l'erreur de Conversation.jsx).
  */
 export const getConversationDetails = (conversationId) => {
     return api.get(`/conversations/${conversationId}`);
@@ -116,8 +120,7 @@ export const getConversationDetails = (conversationId) => {
 
 
 /**
- * 🔑 FONCTION CRITIQUE (Pour charger l'historique)
- * Récupérer tous les messages d'une conversation : GET /conversations/:id/messages
+ * Récupérer tous les messages d'une conversation (pour l'historique).
  */
 export const getMessages = (conversationId) => {
     return api.get(`/conversations/${conversationId}/messages`);
