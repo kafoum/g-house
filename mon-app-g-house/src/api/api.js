@@ -5,10 +5,13 @@ import axios from 'axios';
 // ======================================================================
 
 // ATTENTION : REMPLACEZ CETTE VALEUR PAR L'URL DE VOTRE API RENDER
+// Dans un projet React/Vite, l'idéal est d'utiliser import.meta.env.VITE_API_URL
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://g-house-api.onrender.com/api';
 
 const api = axios.create({
     baseURL: API_BASE_URL,
+    // Note: 'Content-Type': 'application/json' est le défaut, mais il est géré
+    // dans l'intercepteur pour permettre les FormData (upload de fichiers).
     headers: {
         'Content-Type': 'application/json',
     },
@@ -20,18 +23,21 @@ const api = axios.create({
 
 /**
  * Intercepteur de requête pour ajouter le token JWT 
- * à toutes les requêtes.
+ * à toutes les requêtes qui en ont besoin.
  */
 api.interceptors.request.use(config => {
+    // Récupère le token depuis le stockage local
     const token = localStorage.getItem('token'); 
 
+    // Si le token existe, l'ajoute à l'en-tête Authorization
     if (token) {
         config.headers.Authorization = `Bearer ${token}`; 
     }
 
-    // ✅ CORRECTION DU 403 (Token/FormData) : Le Content-Type doit être supprimé 
-    // pour les requêtes FormData (upload de fichiers) pour que le navigateur le gère correctement.
+    // Gère le Content-Type pour les requêtes FormData (upload de fichiers)
     if (config.data instanceof FormData) {
+        // Supprime Content-Type pour que le navigateur le gère automatiquement
+        // (multipart/form-data avec la bonne boundary)
         delete config.headers['Content-Type'];
     }
 
@@ -42,111 +48,99 @@ api.interceptors.request.use(config => {
 
 
 // ======================================================================
-// 3. FONCTIONS AUTHENTIFICATION (LA CORRECTION EST ICI)
+// 3. FONCTIONS AUTHENTIFICATION
 // ======================================================================
 
 /**
- * Fonction de connexion : POST /login
- * @param {object} credentials - L'objet contenant { email, password }
- */
-export const login = (credentials) => {
-    // 🔑 CORRECTION CRITIQUE : Envoi direct de l'objet { email, password }
-    // Anciennement: api.post('/login', { email: credentials }) -> CAUSE DU BUG
-    return api.post('/login', credentials); 
-};
-
-
-/**
- * Fonction d'inscription : POST /register
- * @param {object} userData - L'objet contenant les données d'inscription
+ * S'inscrire : POST /register
  */
 export const register = (userData) => {
     return api.post('/register', userData);
 };
 
+/**
+ * Se connecter : POST /login
+ */
+export const login = (credentials) => {
+    return api.post('/login', credentials);
+};
+
 
 // ======================================================================
-// 4. FONCTIONS LOGEMENTS (HOUSING)
+// 4. FONCTIONS ANNONCES (HOUSING)
 // ======================================================================
 
 /**
- * Récupérer tous les logements (avec filtres) : GET /housing
- * @param {object} params - Paramètres de filtre (city, price_min, price_max, type)
+ * Récupérer la liste de TOUTES les annonces actives : GET /housing
  */
-export const getHousingList = (params) => {
-    // Envoie les paramètres sous forme de query string: /housing?city=Paris&...
-    return api.get('/housing', { params });
+export const getHousingList = () => {
+    return api.get('/housing');
 };
 
 /**
- * Récupérer les détails d'un logement spécifique : GET /housing/:id
- * @param {string} housingId - L'ID du logement
+ * Récupérer les détails d'une annonce : GET /housing/:id
  */
-export const getHousingDetails = (housingId) => {
-    return api.get(`/housing/${housingId}`);
+export const getHousingDetails = (id) => {
+    return api.get(`/housing/${id}`);
 };
 
 /**
- * Créer un nouveau logement : POST /housing
- * @param {FormData} housingData - FormData contenant les données du logement et les images
- */
-export const createHousing = (housingData) => {
-    return api.post('/housing', housingData);
-};
-
-/**
- * Mettre à jour un logement existant : PUT /housing/:id
- * @param {string} housingId - L'ID du logement à mettre à jour
- * @param {FormData} housingData - FormData contenant les données mises à jour
- */
-export const updateHousing = (housingId, housingData) => {
-    // Note: Utiliser PUT/PATCH avec FormData peut nécessiter une configuration spécifique
-    // ou l'utilisation d'une méthode de contournement pour les fichiers.
-    return api.put(`/housing/${housingId}`, housingData);
-};
-
-/**
- * Supprimer un logement : DELETE /housing/:id
- * @param {string} housingId - L'ID du logement à supprimer
- */
-export const deleteHousing = (housingId) => {
-    return api.delete(`/housing/${housingId}`);
-};
-
-/**
- * Récupérer les logements créés par le propriétaire connecté : GET /user/housing
+ * Récupérer les annonces d'un propriétaire (pour le Dashboard) : GET /user/housing
  */
 export const getUserHousing = () => {
     return api.get('/user/housing');
 };
 
-
-// ======================================================================
-// 5. FONCTIONS RÉSERVATIONS (BOOKINGS)
-// ======================================================================
-
 /**
- * Créer une session de paiement Stripe et une pré-réservation : POST /bookings/create-session
- * @param {object} bookingData - Les données de réservation (housingId, startDate, endDate, totalPrice)
+ * Créer une nouvelle annonce : POST /user/housing
+ * 🟢 CORRECTION : Utilise la bonne route protégée /user/housing
+ * @param {FormData} housingData - FormData contenant toutes les données (y compris les fichiers)
  */
-export const createBookingSession = (bookingData) => {
-    return api.post('/bookings/create-session', bookingData);
+export const createHousing = (housingData) => {
+    return api.post('/user/housing', housingData); 
 };
 
 /**
- * Récupérer toutes les réservations (pour le propriétaire) : GET /bookings
+ * Mettre à jour une annonce : PUT /user/housing/:id
+ * 🟢 CORRECTION : Utilise la bonne route protégée /user/housing/:id
+ * @param {string} id - L'ID de l'annonce
+ * @param {FormData} housingData - FormData contenant les données
+ */
+export const updateHousing = (id, housingData) => {
+    return api.put(`/user/housing/${id}`, housingData);
+};
+
+/**
+ * Supprimer une annonce : DELETE /user/housing/:id
+ * 🟢 CORRECTION : Utilise la bonne route protégée /user/housing/:id
+ */
+export const deleteHousing = (id) => {
+    return api.delete(`/user/housing/${id}`);
+};
+
+
+// ======================================================================
+// 5. FONCTIONS RÉSERVATIONS (BOOKING)
+// ======================================================================
+
+/**
+ * Créer une nouvelle réservation : POST /bookings
+ */
+export const createBooking = (bookingData) => {
+    return api.post('/bookings', bookingData);
+};
+
+/**
+ * Récupérer toutes les réservations d'un utilisateur (locataire ou propriétaire) : GET /user/bookings
  */
 export const getBookings = () => {
-    return api.get('/bookings');
+    return api.get('/user/bookings');
 };
 
 /**
- * Mettre à jour le statut d'une réservation : PUT /bookings/:id/status
- * @param {string} bookingId - L'ID de la réservation
- * @param {string} status - Le nouveau statut ('confirmed', 'cancelled', 'completed')
+ * Mettre à jour le statut d'une réservation (Propriétaire uniquement) : PUT /bookings/:id/status
  */
 export const updateBookingStatus = (bookingId, status) => {
-    // Envoie l'objet simple { status: 'nouveau_statut' }
     return api.put(`/bookings/${bookingId}/status`, { status });
 };
 
@@ -156,19 +150,17 @@ export const updateBookingStatus = (bookingId, status) => {
 // ======================================================================
 
 /**
- * Démarrer ou obtenir une conversation avec un autre utilisateur : POST /conversations/start
- * @param {string} recipientId - L'ID de l'utilisateur destinataire
+ * Récupérer la liste des conversations de l'utilisateur : GET /conversations
  */
-export const startConversation = (recipientId) => {
-    // Crée une conversation avec l'utilisateur actuel et le destinataire
-    return api.post('/conversations/start', { recipientId });
+export const getConversationsList = () => {
+    return api.get('/conversations');
 };
 
 /**
- * Récupérer la liste des conversations de l'utilisateur : GET /conversations
+ * Démarrer une nouvelle conversation : POST /conversations/start
  */
-export const getConversations = () => {
-    return api.get('/conversations');
+export const startConversation = (data) => {
+    return api.post('/conversations/start', data);
 };
 
 /**
@@ -219,7 +211,19 @@ export const markNotificationAsRead = (notificationId) => {
 
 
 // ======================================================================
-// 9. EXPORT DE L'INSTANCE AXIOS PAR DÉFAUT
+// 9. FONCTIONS PAIEMENT (STRIPE)
+// ======================================================================
+
+/**
+ * Créer une session de paiement Stripe pour une réservation : POST /create-checkout-session
+ */
+export const createCheckoutSession = (bookingId) => {
+    return api.post('/create-checkout-session', { bookingId });
+};
+
+
+// ======================================================================
+// 10. EXPORT DE L'INSTANCE AXIOS PAR DÉFAUT
 // ======================================================================
 
 export default api;
