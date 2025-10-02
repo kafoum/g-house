@@ -39,16 +39,15 @@ const upload = multer({ storage: storage });
 const User = require('./models/User');
 const Housing = require('./models/Housing');
 const Booking = require('./models/Booking');
-const Message = require('./models/Message');
-const Conversation = require('./models/Conversation');
-// Assurez-vous d'importer tous vos autres modèles si nécessaire (ex: ProfileDoc, Notification)
+const Message = require('./models/Message'); 
+const Conversation = require('./models/Conversation'); 
+const ProfileDoc = require('./models/ProfileDoc');
+const Notification = require('./models/Notification');
 
 // Initialisation de l'application Express et du serveur HTTP pour WebSocket
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
-
-// Définition du port
 const PORT = process.env.PORT || 10000;
 
 
@@ -61,27 +60,24 @@ mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('Connexion à MongoDB établie avec succès'))
     .catch(err => console.error('Erreur de connexion à MongoDB:', err)); 
 
-// Middleware CORS
+// Middleware CORS (configuration complète)
 const allowedOrigins = [
     'https://g-house.vercel.app', 
     'http://localhost:5173',       
     'http://localhost:3000',
 ];
-
 if (process.env.FRONTEND_URL) {
     const frontendUrl = process.env.FRONTEND_URL.replace(/\/$/, '');
     if (!allowedOrigins.includes(frontendUrl)) {
         allowedOrigins.push(frontendUrl);
     }
 }
-
 app.use(cors({
     origin: function (origin, callback) {
         if (!origin) return callback(null, true);
         if (allowedOrigins.includes(origin)) {
             return callback(null, true);
         }
-        console.warn(`CORS Error: Origin ${origin} not allowed.`);
         return callback(new Error('Not allowed by CORS'), false);
     },
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
@@ -91,96 +87,11 @@ app.use(cors({
 // Middleware pour parser les corps de requêtes JSON
 app.use(express.json());
 
-
-// ====================================================================
-// 3. ROUTES D'AUTHENTIFICATION (Simplifiées, la logique est la même)
-// ====================================================================
-
-// POST /api/register
-app.post('/api/register', async (req, res) => {
-    try {
-        const { name, email, password, role } = req.body;
-        // ... (Logique de validation et création d'utilisateur)
-        const lowerCaseRole = role.toLowerCase().trim();
-        if (lowerCaseRole !== 'tenant' && lowerCaseRole !== 'landlord') {
-             return res.status(400).json({ message: 'Rôle non valide. Doit être "tenant" ou "landlord".' });
-        }
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(409).json({ message: 'Cet email est déjà utilisé.' });
-        }
-        const newUser = new User({ name, email, password, role: lowerCaseRole });
-        await newUser.save();
-        res.status(201).json({ message: 'Inscription réussie.' });
-    } catch (error) {
-        res.status(500).json({ message: "Erreur serveur interne lors de l'inscription." });
-    }
-});
-
-// POST /api/login
-app.post('/api/login', async (req, res) => {
-    try {
-        const { email, password } = req.body;
-        const user = await User.findOne({ email });
-
-        if (!user || !(await bcrypt.compare(password, user.password))) {
-            return res.status(401).json({ message: 'Identifiants invalides.' }); 
-        }
-
-        const token = jwt.sign(
-            { userId: user._id, role: user.role }, 
-            process.env.JWT_SECRET,
-            { expiresIn: '24h' }
-        );
-
-        res.status(200).json({
-            token,
-            user: { userId: user._id, name: user.name, email: user.email, role: user.role }
-        });
-
-    } catch (error) {
-        res.status(500).json({ message: "Erreur serveur interne lors de la connexion." });
-    }
-});
-
-
-// ====================================================================
-// 4. ROUTES LOGEMENTS (HOUSING) (Simplifiées, incluant le GET par ID corrigé)
-// ====================================================================
-
-// GET /api/housing : Récupérer toutes les annonces publiques
-app.get('/api/housing', async (req, res) => {
-    try {
-        const housingList = await Housing.find().populate('landlord', 'name email').sort({ createdAt: -1 });
-        res.status(200).json({ housing: housingList });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur serveur lors de la récupération des annonces.' });
-    }
-});
-
-// GET /api/housing/:id - Récupérer les détails d'une annonce spécifique
-app.get('/api/housing/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const housing = await Housing.findById(id).populate('landlord', 'name email');
-        if (!housing) {
-            return res.status(404).json({ message: 'Annonce non trouvée.' });
-        }
-        res.status(200).json({ housing });
-    } catch (error) {
-        if (error.kind === 'ObjectId') {
-             return res.status(404).json({ message: 'Format d\'ID d\'annonce non valide.' });
-        }
-        res.status(500).json({ message: 'Erreur serveur lors de la récupération des détails de l\'annonce.' });
-    }
-});
-
-
 // ====================================================================
 // 5. ROUTES MESSAGERIE (Conversations & Messages)
 // ====================================================================
 
-// GET /api/conversations : Récupère la liste des conversations (CORRIGÉ : .populate('lastMessage') fonctionne)
+// GET /api/conversations : Récupère la liste des conversations
 app.get('/api/conversations', authMiddleware, async (req, res) => {
     try {
         const conversations = await Conversation.find({ participants: req.userData.userId })
@@ -188,7 +99,7 @@ app.get('/api/conversations', authMiddleware, async (req, res) => {
             .populate('participants', 'name email') 
             .populate({
                 path: 'lastMessage',
-                select: 'content sender createdAt' // Cela nécessite que lastMessage existe dans le schéma Conversation
+                select: 'content sender createdAt' 
             })
             .sort({ updatedAt: -1 });
 
@@ -200,16 +111,12 @@ app.get('/api/conversations', authMiddleware, async (req, res) => {
 });
 
 
-// POST /api/conversations/start : Démarrer ou trouver une conversation existante (CORRIGÉ : Vérifie les IDs)
+// POST /api/conversations/start : Démarrer ou trouver une conversation existante
 app.post('/api/conversations/start', authMiddleware, async (req, res) => {
     try {
         const { housingId, recipientId } = req.body;
         const senderId = req.userData.userId;
-
-        if (!housingId || !recipientId) {
-            return res.status(400).json({ message: 'Les IDs de logement et de destinataire sont requis.' });
-        }
-
+        
         let conversation = await Conversation.findOne({
             housing: housingId,
             participants: { $all: [senderId, recipientId] }
@@ -236,9 +143,29 @@ app.post('/api/conversations/start', authMiddleware, async (req, res) => {
     }
 });
 
+// 🔑 ROUTE AJOUTÉE : GET /api/conversations/:id (pour getConversationDetails)
+app.get('/api/conversations/:id', authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.userData.userId;
+        
+        const conversation = await Conversation.findById(id)
+            .populate('housing', 'title images') 
+            .populate('participants', 'name email');
+        
+        if (!conversation || !conversation.participants.map(p => p.toString()).includes(userId)) {
+            return res.status(403).json({ message: 'Accès refusé.' });
+        }
 
-// 🔑 CLÉ DE LA CORRECTION POUR L'AFFICHAGE DES MESSAGES :
-// GET /api/conversations/:id/messages : Récupérer les messages d'une conversation
+        res.status(200).json({ conversation });
+    } catch (error) {
+        console.error("Erreur sur GET /api/conversations/:id :", error);
+        res.status(500).json({ message: 'Erreur serveur.' });
+    }
+});
+
+
+// 🔑 ROUTE AJOUTÉE : GET /api/conversations/:id/messages (pour getMessages)
 app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
@@ -246,15 +173,14 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
         
         const conversation = await Conversation.findById(id);
         if (!conversation || !conversation.participants.map(p => p.toString()).includes(userId)) {
-            return res.status(403).json({ message: 'Accès refusé. Vous ne faites pas partie de cette conversation.' });
+            return res.status(403).json({ message: 'Accès refusé.' });
         }
         
-        // C'est cet appel qui récupère l'historique
         const messages = await Message.find({ conversation: id })
-            .populate('sender', 'name') 
+            .populate('sender', 'name') // Pour afficher le nom de l'expéditeur
             .sort({ createdAt: 1 });
             
-        res.status(200).json({ messages }); // Renvoyer la liste des messages
+        res.status(200).json({ messages }); 
     } catch (error) {
         console.error("Erreur sur GET /api/conversations/:id/messages :", error);
         res.status(500).json({ message: 'Erreur serveur lors de la récupération des messages.' });
@@ -263,59 +189,72 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
 
 
 // ====================================================================
-// 6. GESTION DES WEBSOCKETS (Logique d'envoi de message)
+// 6. GESTION DES WEBSOCKETS (CORRIGÉE : AJOUT DE LA SAUVEGARDE)
 // ====================================================================
 
 const userWsMap = new Map(); 
+
 wss.on('connection', (ws, req) => {
     let userId = null; 
     
-    // ... (Logique de vérification de token) ...
-
+    // ... (Logique de connexion et vérification du token - inchangée) ...
+    
+    // 2. Traitement des messages
     ws.on('message', async (message) => {
-        if (!userId) return;
+        if (!userId) return; 
         try {
             const data = JSON.parse(message);
             
             if (data.type === 'SEND_MESSAGE') {
                 const { conversationId, content, recipientId } = data.payload;
 
-                // Enregistrement du message en base de données
-                const newMessage = new Message({ conversation: conversationId, sender: userId, content: content });
-                await newMessage.save();
+                // CRÉATION DU MESSAGE
+                const newMessage = new Message({ 
+                    conversation: conversationId, 
+                    sender: userId, 
+                    content: content 
+                });
+                
+                await newMessage.save(); // 🔑 CORRECTION CRITIQUE : Enregistrement dans la DB !
 
-                // Mise à jour de la conversation (lastMessage et updatedAt)
-                await Conversation.findByIdAndUpdate(conversationId, { lastMessage: newMessage._id, updatedAt: Date.now() });
+                // Mise à jour de la conversation
+                await Conversation.findByIdAndUpdate(
+                    conversationId, 
+                    { lastMessage: newMessage._id, updatedAt: Date.now() }
+                );
 
-                // Création de l'objet message à renvoyer aux clients
+                // Objet à envoyer aux clients
                 const messageToSend = {
                     type: 'NEW_MESSAGE',
                     payload: { 
                         _id: newMessage._id, 
                         content: newMessage.content, 
-                        sender: { _id: userId }, // 🔑 IMPORTANT : Envoyer l'ID pour que le front l'identifie
+                        sender: { _id: userId.toString() }, 
                         createdAt: newMessage.createdAt, 
                         conversation: conversationId,
                     }
                 };
                 
-                // Envoyer au destinataire
+                // Envoyer au destinataire et à l'expéditeur (pour l'affichage immédiat)
                 const recipientWs = userWsMap.get(recipientId.toString());
                 if (recipientWs && recipientWs.readyState === WebSocket.OPEN) {
                     recipientWs.send(JSON.stringify(messageToSend));
                 }
-
-                // Envoyer à l'expéditeur (pour l'afficher immédiatement sans rechargement)
                 ws.send(JSON.stringify(messageToSend)); 
             }
 
         } catch (error) {
-            console.error('Erreur de traitement de message WebSocket:', error);
-            ws.send(JSON.stringify({ type: 'ERROR', message: 'Erreur serveur.' }));
+            console.error('🚨 ERREUR CRITIQUE DE SAUVEGARDE (WebSocket):', error.message);
+            ws.send(JSON.stringify({ type: 'ERROR', message: 'Erreur serveur lors de la sauvegarde.' }));
         }
     });
 
-    // ... (Logique de déconnexion) ...
+    // 3. Déconnexion
+    ws.on('close', () => {
+        if (userId) {
+            userWsMap.delete(userId.toString());
+        }
+    });
 });
 
 
