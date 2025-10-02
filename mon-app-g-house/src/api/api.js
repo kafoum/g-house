@@ -1,5 +1,3 @@
-// frontend/src/api/api.js
-
 import axios from 'axios';
 
 // ======================================================================
@@ -22,7 +20,7 @@ const api = axios.create({
 
 /**
  * Intercepteur de requête pour ajouter le token JWT 
- * à toutes les requêtes qui en ont besoin.
+ * à toutes les requêtes.
  */
 api.interceptors.request.use(config => {
     const token = localStorage.getItem('token'); 
@@ -31,9 +29,9 @@ api.interceptors.request.use(config => {
         config.headers.Authorization = `Bearer ${token}`; 
     }
 
-    // Le Content-Type doit être supprimé pour les requêtes FormData (upload de fichiers)
+    // ✅ CORRECTION DU 403 (Token/FormData) : Le Content-Type doit être supprimé 
+    // pour les requêtes FormData (upload de fichiers) pour que le navigateur le gère correctement.
     if (config.data instanceof FormData) {
-        // CORRECTION DU 403 : S'assurer que le navigateur gère le multipart/form-data
         delete config.headers['Content-Type'];
     }
 
@@ -82,7 +80,6 @@ export const getHousingDetails = (id) => {
 
 /**
  * Créer un nouveau logement : POST /housing
- * Le Content-Type est géré par l'intercepteur car c'est un FormData.
  */
 export const createHousing = (housingData) => {
     return api.post('/housing', housingData);
@@ -123,10 +120,9 @@ export const createBookingSession = (bookingData) => {
 
 /**
  * Récupérer les réservations d'un utilisateur (locataire ou propriétaire) : GET /bookings
- * Le backend détermine le rôle et filtre en conséquence.
  */
+// ✅ CORRECTION DU 404 : La route backend est simplement /api/bookings
 export const getBookings = () => {
-    // ✅ CORRECTION 404 : La route backend est simplement /api/bookings
     return api.get('/bookings'); 
 };
 
@@ -137,10 +133,75 @@ export const updateBookingStatus = (bookingId, status) => {
     return api.put(`/bookings/${bookingId}/status`, { status });
 };
 
-// ... (Ajouter ici les autres fonctions d'API pour Conversations, Messages, etc.)
 
 // ======================================================================
-// 10. EXPORT DE L'INSTANCE AXIOS PAR DÉFAUT
+// 6. FONCTIONS CONVERSATIONS/MESSAGERIE
+// ======================================================================
+
+/**
+ * Démarrer une conversation ou récupérer une conversation existante : POST /conversations/start
+ */
+export const startConversation = (recipientId, housingId = null) => {
+    return api.post('/conversations/start', { recipientId, housingId });
+};
+
+/**
+ * Récupérer la liste des conversations de l'utilisateur : GET /conversations
+ */
+// ✅ CORRECTION DU BUILD : Ajout de la fonction manquante
+export const getConversationsList = () => {
+    return api.get('/conversations');
+};
+
+/**
+ * Récupérer les messages d'une conversation : GET /conversations/:id/messages
+ */
+export const getMessages = (conversationId) => {
+    return api.get(`/conversations/${conversationId}/messages`);
+};
+
+
+// ======================================================================
+// 7. FONCTIONS DOCUMENTS DE PROFIL
+// ======================================================================
+
+/**
+ * Télécharger un document de profil : POST /user/documents
+ * @param {FormData} docData - FormData contenant 'docType' et le fichier
+ */
+export const uploadProfileDocument = (docData) => {
+    return api.post('/user/documents', docData);
+};
+
+/**
+ * Récupérer la liste des documents de l'utilisateur : GET /user/documents
+ */
+export const getProfileDocuments = () => {
+    return api.get('/user/documents');
+};
+
+
+// ======================================================================
+// 8. FONCTIONS NOTIFICATIONS
+// ======================================================================
+
+/**
+ * Récupérer les notifications de l'utilisateur : GET /notifications
+ */
+export const getNotifications = () => {
+    return api.get('/notifications');
+};
+
+/**
+ * Marquer une notification comme lue : PUT /notifications/:id/read
+ */
+export const markNotificationAsRead = (notificationId) => {
+    return api.put(`/notifications/${notificationId}/read`);
+};
+
+
+// ======================================================================
+// 9. EXPORT DE L'INSTANCE AXIOS PAR DÉFAUT
 // ======================================================================
 
 export default api;
