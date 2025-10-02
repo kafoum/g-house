@@ -1,4 +1,4 @@
-// Fichier : backend/index.js (Version Stable et Complète)
+// Fichier : backend/index.js (Version Stable et Complète - Correction du format de Housing)
 
 // Charge les variables d'environnement depuis le fichier .env
 require('dotenv').config();
@@ -143,13 +143,12 @@ app.post('/api/login', async (req, res) => {
 // 4. ROUTES LOGEMENTS (HOUSING)
 // ====================================================================
 
-// 🔑 CORRECTION 404 : Ajout de la route pour la liste des annonces
+// 🔑 CORRECTION CRUCIALE : Envoi du tableau [housings] directement au lieu de { housings: [...] }
 app.get('/api/housing', async (req, res) => {
     try {
         const { city, price_min, price_max, type } = req.query;
         let query = {};
 
-        // Application des filtres
         if (city) query['location.city'] = new RegExp(city, 'i');
         if (type) query.type = type;
         if (price_min || price_max) {
@@ -162,7 +161,9 @@ app.get('/api/housing', async (req, res) => {
             .populate('landlord', 'name email')
             .sort({ createdAt: -1 });
 
-        res.status(200).json({ housings });
+        // MODIFICATION : On envoie l'array 'housings' directement.
+        res.status(200).json(housings); // 💡 Ancienne version: .json({ housings })
+
     } catch (error) {
         console.error("Erreur sur GET /api/housing :", error);
         res.status(500).json({ message: 'Erreur serveur lors de la récupération des annonces.' });
@@ -268,7 +269,7 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
 
 
 // ====================================================================
-// 6. GESTION DES WEBSOCKETS (CLÉ DE LA CORRECTION MESSAGERIE)
+// 6. GESTION DES WEBSOCKETS
 // ====================================================================
 
 const userWsMap = new Map(); 
@@ -308,7 +309,7 @@ wss.on('connection', (ws, req) => {
                     content: content 
                 });
                 
-                await newMessage.save(); // 🔑 SAUVEGARDE CRITIQUE
+                await newMessage.save(); // SAUVEGARDE CRITIQUE
 
                 // Mise à jour de la conversation
                 await Conversation.findByIdAndUpdate(
@@ -339,7 +340,7 @@ wss.on('connection', (ws, req) => {
             }
 
         } catch (error) {
-            // 🚨 LOG DE DÉBOGAGE DÉTAILLÉ
+            // Log de débogage détaillé pour les erreurs Mongoose
             console.error('🚨 ERREUR CRITIQUE DE SAUVEGARDE (WebSocket):', error.message);
             if (error.name === 'ValidationError') {
                 console.error('Champs de validation Mongoose manquants:', Object.keys(error.errors));
