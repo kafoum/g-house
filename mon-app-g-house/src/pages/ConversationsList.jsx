@@ -1,19 +1,24 @@
-// Fichier : frontend/src/pages/ConversationsList.jsx (Réinitialisation du compteur)
+// Fichier : frontend/src/pages/ConversationsList.jsx (Version Corrigée)
 
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+
 import { getConversationsList } from '../api/api'; 
-// 🔑 Importation de la fonction pour réinitialiser le compteur
 import { useAuth } from '../context/AuthContext'; 
 
 const ConversationsList = () => {
-    // 🔑 NOUVEAU : Récupération de la fonction resetUnreadMessagesCount
-    const { user, resetUnreadMessagesCount } = useAuth(); 
+    const { user, isLoading: isAuthLoading } = useAuth(); // Récupère les infos de l'utilisateur connecté
     const [conversations, setConversations] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
+    // 🔑 CLÉ : Déterminer l'ID utilisateur pour la comparaison
+    const currentUserId = user ? (user._id || user.userId) : null; 
+
     useEffect(() => {
+        // Attendre que l'authentification soit chargée et que l'utilisateur soit connecté
+        if (isAuthLoading) return;
+
         if (!user) {
             setLoading(false);
             setError('Vous devez être connecté pour voir vos conversations.');
@@ -25,35 +30,39 @@ const ConversationsList = () => {
             try {
                 const response = await getConversationsList(); 
                 setConversations(response.data.conversations);
-                
-                // 🔑 CLÉ : Réinitialiser le compteur de messages non lus 
-                resetUnreadMessagesCount(); 
-                
             } catch (err) {
                 setError('Impossible de charger les conversations. Veuillez réessayer plus tard.');
-                console.error("Erreur API:", err);
+                console.error("Erreur API des conversations:", err);
             } finally {
                 setLoading(false);
             }
         };
 
         fetchConversations();
-    }, [user, resetUnreadMessagesCount]); 
+    // Déclenche le fetch quand l'objet 'user' du contexte est prêt ou change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user, isAuthLoading]); 
 
-    if (loading) {
-        return <div className="p-8 text-center">Chargement des conversations...</div>;
+    if (loading || isAuthLoading) {
+        return <p className="text-center mt-10 text-lg">Chargement des conversations...</p>;
     }
-    // ... (Reste du rendu) ...
-    // Le reste du composant (affichage de la liste) reste le même que dans votre fichier, 
-    // mais le comportement d'urgence est maintenant géré par l'appel à resetUnreadMessagesCount.
+
+    if (error) {
+        return <p className="text-center mt-10 text-xl text-red-600">⚠️ {error}</p>;
+    }
+    
+    if (conversations.length === 0) {
+        return <p className="text-center mt-10 text-xl text-gray-500">Vous n'avez pas encore de conversation.</p>
+    }
 
     return (
-        <div className="container mx-auto p-4 max-w-2xl">
-            <h1 className="text-3xl font-bold mb-6 text-gray-800">Vos Messageries</h1>
-            
+        <div className="p-6 max-w-4xl mx-auto">
+            <h1 className="text-3xl font-bold mb-6 text-gray-800">Mes Conversations</h1>
+
             <ul className="bg-white rounded-lg shadow-xl overflow-hidden divide-y divide-gray-200">
                 {conversations.map(conv => {
-                    const otherParticipant = conv.participants.find(p => p._id !== user.userId); 
+                    // 🔑 Utilise currentUserId sécurisé
+                    const otherParticipant = conv.participants.find(p => p._id !== currentUserId); 
                     
                     return (
                         <li key={conv._id}>
@@ -67,6 +76,12 @@ const ConversationsList = () => {
                                 <div className="text-sm text-gray-500 mt-1">
                                     Logement: {conv.housing?.title || 'Non spécifié'}
                                 </div>
+                                {/* Optionnel : Afficher le dernier message */}
+                                {conv.lastMessage?.content && (
+                                    <p className="text-xs text-gray-400 truncate mt-1">
+                                        Dernier message: {conv.lastMessage.content}
+                                    </p>
+                                )}
                             </Link>
                         </li>
                     );
