@@ -42,18 +42,23 @@ api.interceptors.request.use(config => {
 
 
 // ======================================================================
-// 3. FONCTIONS AUTHENTIFICATION
+// 3. FONCTIONS AUTHENTIFICATION (LA CORRECTION EST ICI)
 // ======================================================================
 
 /**
- * Connexion de l'utilisateur : POST /login
+ * Fonction de connexion : POST /login
+ * @param {object} credentials - L'objet contenant { email, password }
  */
-export const login = (email, password) => {
-    return api.post('/login', { email, password });
+export const login = (credentials) => {
+    // 🔑 CORRECTION CRITIQUE : Envoi direct de l'objet { email, password }
+    // Anciennement: api.post('/login', { email: credentials }) -> CAUSE DU BUG
+    return api.post('/login', credentials); 
 };
 
+
 /**
- * Inscription de l'utilisateur : POST /register
+ * Fonction d'inscription : POST /register
+ * @param {object} userData - L'objet contenant les données d'inscription
  */
 export const register = (userData) => {
     return api.post('/register', userData);
@@ -61,46 +66,55 @@ export const register = (userData) => {
 
 
 // ======================================================================
-// 4. FONCTIONS LOGEMENTS
+// 4. FONCTIONS LOGEMENTS (HOUSING)
 // ======================================================================
 
 /**
- * Récupérer la liste des logements : GET /housing
+ * Récupérer tous les logements (avec filtres) : GET /housing
+ * @param {object} params - Paramètres de filtre (city, price_min, price_max, type)
  */
-export const getHousingList = (filters) => {
-    return api.get('/housing', { params: filters });
+export const getHousingList = (params) => {
+    // Envoie les paramètres sous forme de query string: /housing?city=Paris&...
+    return api.get('/housing', { params });
 };
 
 /**
- * Récupérer les détails d'un logement : GET /housing/:id
+ * Récupérer les détails d'un logement spécifique : GET /housing/:id
+ * @param {string} housingId - L'ID du logement
  */
-export const getHousingDetails = (id) => {
-    return api.get(`/housing/${id}`);
+export const getHousingDetails = (housingId) => {
+    return api.get(`/housing/${housingId}`);
 };
 
 /**
  * Créer un nouveau logement : POST /housing
+ * @param {FormData} housingData - FormData contenant les données du logement et les images
  */
 export const createHousing = (housingData) => {
     return api.post('/housing', housingData);
 };
 
 /**
- * Modifier un logement : PUT /housing/:id
+ * Mettre à jour un logement existant : PUT /housing/:id
+ * @param {string} housingId - L'ID du logement à mettre à jour
+ * @param {FormData} housingData - FormData contenant les données mises à jour
  */
-export const updateHousing = (id, housingData) => {
-    return api.put(`/housing/${id}`, housingData);
+export const updateHousing = (housingId, housingData) => {
+    // Note: Utiliser PUT/PATCH avec FormData peut nécessiter une configuration spécifique
+    // ou l'utilisation d'une méthode de contournement pour les fichiers.
+    return api.put(`/housing/${housingId}`, housingData);
 };
 
 /**
  * Supprimer un logement : DELETE /housing/:id
+ * @param {string} housingId - L'ID du logement à supprimer
  */
-export const deleteHousing = (id) => {
-    return api.delete(`/housing/${id}`);
+export const deleteHousing = (housingId) => {
+    return api.delete(`/housing/${housingId}`);
 };
 
 /**
- * Récupérer les logements d'un propriétaire : GET /user/housing
+ * Récupérer les logements créés par le propriétaire connecté : GET /user/housing
  */
 export const getUserHousing = () => {
     return api.get('/user/housing');
@@ -108,48 +122,52 @@ export const getUserHousing = () => {
 
 
 // ======================================================================
-// 5. FONCTIONS RÉSERVATIONS
+// 5. FONCTIONS RÉSERVATIONS (BOOKINGS)
 // ======================================================================
 
 /**
- * Créer une session de réservation (Stripe Checkout) : POST /create-booking-session
+ * Créer une session de paiement Stripe et une pré-réservation : POST /bookings/create-session
+ * @param {object} bookingData - Les données de réservation (housingId, startDate, endDate, totalPrice)
  */
 export const createBookingSession = (bookingData) => {
-    return api.post('/create-booking-session', bookingData);
+    return api.post('/bookings/create-session', bookingData);
 };
 
 /**
- * Récupérer les réservations d'un utilisateur (locataire ou propriétaire) : GET /bookings
+ * Récupérer toutes les réservations (pour le propriétaire) : GET /bookings
  */
-// ✅ CORRECTION DU 404 : La route backend est simplement /api/bookings
 export const getBookings = () => {
-    return api.get('/bookings'); 
+    return api.get('/bookings');
 };
 
 /**
- * Mettre à jour le statut d'une réservation (uniquement pour le propriétaire) : PUT /bookings/:id/status
+ * Mettre à jour le statut d'une réservation : PUT /bookings/:id/status
+ * @param {string} bookingId - L'ID de la réservation
+ * @param {string} status - Le nouveau statut ('confirmed', 'cancelled', 'completed')
  */
 export const updateBookingStatus = (bookingId, status) => {
+    // Envoie l'objet simple { status: 'nouveau_statut' }
     return api.put(`/bookings/${bookingId}/status`, { status });
 };
 
 
 // ======================================================================
-// 6. FONCTIONS CONVERSATIONS/MESSAGERIE
+// 6. FONCTIONS MESSAGERIE (CONVERSATIONS / MESSAGES)
 // ======================================================================
 
 /**
- * Démarrer une conversation ou récupérer une conversation existante : POST /conversations/start
+ * Démarrer ou obtenir une conversation avec un autre utilisateur : POST /conversations/start
+ * @param {string} recipientId - L'ID de l'utilisateur destinataire
  */
-export const startConversation = (recipientId, housingId = null) => {
-    return api.post('/conversations/start', { recipientId, housingId });
+export const startConversation = (recipientId) => {
+    // Crée une conversation avec l'utilisateur actuel et le destinataire
+    return api.post('/conversations/start', { recipientId });
 };
 
 /**
  * Récupérer la liste des conversations de l'utilisateur : GET /conversations
  */
-// ✅ CORRECTION DU BUILD : Ajout de la fonction manquante
-export const getConversationsList = () => {
+export const getConversations = () => {
     return api.get('/conversations');
 };
 
