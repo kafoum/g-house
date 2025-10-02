@@ -1,4 +1,4 @@
-// Fichier : backend/index.js (Version corrigée)
+// Fichier : backend/index.js (Version Complète & Corrigée)
 
 // Charge les variables d'environnement depuis le fichier .env
 require('dotenv').config();
@@ -6,7 +6,7 @@ require('dotenv').config();
 // ====================================================================
 // 1. IMPORTS DES MODULES ET INITIALISATION
 // ====================================================================
-const authMiddleware = require('./middleware/auth');
+const authMiddleware = require('./middleware/auth'); // Assurez-vous que ce chemin est correct
 const jwt = require('jsonwebtoken');
 const express = require('express');
 const mongoose = require('mongoose');
@@ -36,7 +36,7 @@ cloudinary.config({
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-// Importe les modèles Mongoose
+// Importe les modèles Mongoose (Assurez-vous que les chemins et noms sont corrects)
 const User = require('./models/User');
 const Housing = require('./models/Housing');
 const Booking = require('./models/Booking');
@@ -64,16 +64,14 @@ mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('Connexion à MongoDB établie avec succès'))
     .catch(err => console.error('Erreur de connexion à MongoDB:', err));
 
-// Middleware CORS pour autoriser les requêtes depuis votre frontend (Vercel)
+// Middleware CORS
 const allowedOrigins = [
     'https://g-house.vercel.app', 
-    'http://localhost:5173', // Pour le développement local
-    // Ajoutez d'autres domaines si nécessaire
+    'http://localhost:5173', 
 ];
 
 app.use(cors({
     origin: function (origin, callback) {
-        // Permettre les requêtes sans 'origin' (comme les applications mobiles ou curl)
         if (!origin) return callback(null, true);
         if (allowedOrigins.indexOf(origin) === -1) {
             const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
@@ -85,21 +83,97 @@ app.use(cors({
     credentials: true,
 }));
 
-// Middleware pour parser les corps de requêtes JSON (utilisé pour toutes les routes SAUF celles utilisant Multer)
+// Middleware pour parser les corps de requêtes JSON (pour auth, booking, etc.)
 app.use(express.json());
 
 
 // ====================================================================
-// 3. ROUTES D'AUTHENTIFICATION (Exemple non inclus ici mais nécessaire dans votre projet)
+// 3. ROUTES D'AUTHENTIFICATION (CORRIGÉES)
 // ====================================================================
 
-// Route d'inscription
-// app.post('/api/register', ...); 
+// POST /api/register : Route d'inscription
+app.post('/api/register', async (req, res) => {
+    try {
+        const { name, email, password, role } = req.body;
 
-// Route de connexion
-// app.post('/api/login', ...); 
+        if (!name || !email || !password || !role) {
+            return res.status(400).json({ message: 'Tous les champs sont requis.' });
+        }
 
-// ... (Autres routes d'authentification)
+        // 🔑 CORRECTION: Assurer que le rôle est en minuscules et sans espaces
+        const lowerCaseRole = role.toLowerCase().trim();
+        if (lowerCaseRole !== 'tenant' && lowerCaseRole !== 'landlord') {
+             return res.status(400).json({ message: 'Rôle non valide. Doit être "tenant" ou "landlord".' });
+        }
+
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(409).json({ message: 'Cet email est déjà utilisé.' });
+        }
+
+        const newUser = new User({
+            name,
+            email,
+            password, 
+            role: lowerCaseRole // Utilise la valeur nettoyée
+        });
+
+        await newUser.save();
+
+        res.status(201).json({ 
+            message: 'Inscription réussie. Vous pouvez maintenant vous connecter.',
+            user: { id: newUser._id, name: newUser.name, email: newUser.email, role: newUser.role }
+        });
+
+    } catch (error) {
+        console.error("Erreur lors de l'inscription:", error);
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({ message: error.message });
+        }
+        res.status(500).json({ message: "Erreur serveur interne lors de l'inscription." });
+    }
+});
+
+// POST /api/login : Route de connexion
+app.post('/api/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        
+        const user = await User.findOne({ email });
+
+        // 🔑 CORRECTION: Vérification cruciale de l'existence de l'utilisateur
+        if (!user) {
+            return res.status(401).json({ message: 'Identifiants invalides.' }); 
+        }
+
+        const isMatch = await bcrypt.compare(password, user.password);
+
+        if (!isMatch) {
+            return res.status(401).json({ message: 'Identifiants invalides.' });
+        }
+
+        const token = jwt.sign(
+            { userId: user._id, role: user.role }, 
+            process.env.JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+
+        res.status(200).json({
+            token,
+            user: {
+                userId: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role
+            }
+        });
+
+    } catch (error) {
+        // Cette erreur est maintenant le point de sortie pour une erreur serveur générale
+        console.error("Erreur lors de la connexion:", error);
+        res.status(500).json({ message: "Erreur serveur interne lors de la connexion." });
+    }
+});
 
 
 // ====================================================================
@@ -160,7 +234,7 @@ app.post('/api/user/housing', authMiddleware, upload.array('images', 5), async (
             return res.status(403).json({ message: 'Accès refusé. Seuls les propriétaires peuvent créer des annonces.' });
         }
 
-        // 🔑 NOUVEAU: Extraction et conversion des données de req.body (Multipart)
+        // Extraction et conversion des données de req.body (Multipart)
         const { title, description, price, type, amenities, address, city, zipCode } = req.body;
         
         // Reconstruction de l'objet location
@@ -170,11 +244,10 @@ app.post('/api/user/housing', authMiddleware, upload.array('images', 5), async (
             zipCode: zipCode 
         };
         
-        // Conversion du prix en nombre. Si c'est vide ou non valide, Mongoose lèvera une erreur 
-        // ou ça deviendra NaN, ce qui sera géré par l'erreur de validation (correct)
+        // Conversion du prix en nombre
         const parsedPrice = parseFloat(price); 
         
-        // Traitement des équipements (amenities). Les transformer en tableau de chaînes.
+        // Traitement des équipements (amenities)
         const parsedAmenities = amenities ? amenities.split(',').map(item => item.trim()).filter(item => item.length > 0) : [];
         
         // Traitement des images
@@ -195,7 +268,7 @@ app.post('/api/user/housing', authMiddleware, upload.array('images', 5), async (
             title,
             description,
             price: parsedPrice, // Utilise le prix PARSÉ
-            location, // Utilise l'objet location reconstitué
+            location, 
             type,
             amenities: parsedAmenities,
             landlord: req.userData.userId,
@@ -220,14 +293,14 @@ app.post('/api/user/housing', authMiddleware, upload.array('images', 5), async (
 });
 
 
-// ... (PUT /api/user/housing/:id et DELETE /api/user/housing/:id) ...
+// ... (Ajoutez ici les routes PUT /api/user/housing/:id et DELETE /api/user/housing/:id) ...
 
 
 // ====================================================================
 // 5. ROUTES RÉSERVATIONS (BOOKING)
 // ====================================================================
 
-// 🔑 ROUTE CORRIGÉE : GET /api/user/bookings : Récupérer les réservations
+// GET /api/user/bookings : Récupérer les réservations (Corrigée)
 app.get('/api/user/bookings', authMiddleware, async (req, res) => {
     try {
         const userId = req.userData.userId;
@@ -261,19 +334,19 @@ app.get('/api/user/bookings', authMiddleware, async (req, res) => {
     }
 });
 
-// ... (Autres routes de booking) ...
+// ... (Ajoutez ici les autres routes de booking : POST /api/bookings/:housingId, PUT /api/user/bookings/:id/status, etc.) ...
 
 
 // ====================================================================
 // 6. ROUTES MESSAGERIE (CONVERSATIONS)
 // ====================================================================
 
-// GET /api/conversations : Récupérer la liste des conversations (inchangé)
+// GET /api/conversations : Récupérer la liste des conversations
 app.get('/api/conversations', authMiddleware, async (req, res) => {
     try {
         const conversations = await Conversation.find({ participants: req.userData.userId })
-            .populate('housing', 'title images') // Détails de l'annonce
-            .populate('participants', 'name email') // Détails des participants
+            .populate('housing', 'title images') 
+            .populate('participants', 'name email') 
             .populate({
                 path: 'lastMessage',
                 select: 'content sender createdAt'
@@ -287,18 +360,106 @@ app.get('/api/conversations', authMiddleware, async (req, res) => {
     }
 });
 
-// ... (Autres routes de messagerie) ...
+// ... (Ajoutez ici les autres routes de messagerie) ...
 
 
 // ====================================================================
 // 7. GESTION DES WEBSOCKETS
 // ====================================================================
 
-// Map pour associer userId et l'instance WebSocket (inchangé)
+// Map pour associer userId et l'instance WebSocket
 const userWsMap = new Map(); 
 
 wss.on('connection', (ws, req) => {
-    // ... (Logique WebSocket complète, y compris l'authentification et la gestion des messages)
+    let userId = null; // Variable pour stocker l'ID de l'utilisateur après l'authentification
+
+    // 1. Logique d'authentification (basée sur le token JWT passé dans l'URL)
+    const token = req.url.split('token=')[1];
+    if (token) {
+        try {
+            const decodedToken = jwt.verify(token, process.env.JWT_SECRET);
+            userId = decodedToken.userId; 
+            
+            // Stocker la connexion WS avec l'ID de l'utilisateur
+            userWsMap.set(userId, ws);
+            console.log(`Utilisateur connecté via WebSocket: ${userId}`);
+
+            // Envoyer un message de bienvenue ou de confirmation
+            ws.send(JSON.stringify({ type: 'STATUS', message: 'Connexion WebSocket établie.', userId }));
+
+        } catch (error) {
+            console.error('Authentification WebSocket échouée:', error);
+            ws.send(JSON.stringify({ type: 'ERROR', message: 'Token invalide ou expiré.' }));
+            ws.close(1008, 'Policy Violation: Invalid token');
+            return;
+        }
+    } else {
+        ws.send(JSON.stringify({ type: 'ERROR', message: 'Token manquant.' }));
+        ws.close(1008, 'Policy Violation: Missing token');
+        return;
+    }
+
+    // 2. Gestion des messages entrants
+    ws.on('message', async (message) => {
+        if (!userId) {
+            return; // Devrait être géré par la fermeture après l'échec de l'auth
+        }
+        
+        try {
+            const data = JSON.parse(message);
+            
+            if (data.type === 'SEND_MESSAGE') {
+                const { conversationId, content, recipientId } = data.payload;
+
+                // 3. Sauvegarder le message en base de données
+                const newMessage = new Message({
+                    conversation: conversationId,
+                    sender: userId,
+                    content: content
+                });
+
+                await newMessage.save();
+
+                // Mettre à jour la conversation avec le dernier message
+                await Conversation.findByIdAndUpdate(conversationId, { 
+                    lastMessage: newMessage._id,
+                    updatedAt: Date.now()
+                });
+
+                const messageToSend = {
+                    type: 'NEW_MESSAGE',
+                    payload: {
+                        _id: newMessage._id,
+                        content: newMessage.content,
+                        sender: { _id: userId }, // Simplifié pour le front
+                        createdAt: newMessage.createdAt,
+                        conversation: conversationId,
+                    }
+                };
+                
+                // Envoyer au destinataire
+                const recipientWs = userWsMap.get(recipientId.toString());
+                if (recipientWs && recipientWs.readyState === WebSocket.OPEN) {
+                    recipientWs.send(JSON.stringify(messageToSend));
+                }
+
+                // Envoyer à l'expéditeur (pour la confirmation)
+                ws.send(JSON.stringify(messageToSend)); 
+            }
+
+        } catch (error) {
+            console.error('Erreur de traitement de message WebSocket:', error);
+            ws.send(JSON.stringify({ type: 'ERROR', message: 'Erreur serveur.' }));
+        }
+    });
+
+    // 4. Déconnexion
+    ws.on('close', () => {
+        if (userId) {
+            userWsMap.delete(userId); // Supprimer l'utilisateur de la map
+            console.log(`Utilisateur déconnecté via WebSocket: ${userId}`);
+        }
+    });
 });
 
 
