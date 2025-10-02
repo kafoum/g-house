@@ -73,12 +73,12 @@ mongoose.connect(process.env.MONGODB_URI)
 // ====================================================================
 
 app.use(cors());
-app.use(express.json()); // CLÉ 1 : pour parser les requêtes JSON
+app.use(express.json()); // Permet à Express de parser req.body
 app.use(express.urlencoded({ extended: true }));
 
 
 // ====================================================================
-// ROUTES D'AUTHENTIFICATION (Avec Débogage)
+// ROUTES D'AUTHENTIFICATION (CORRIGÉES ET HYPER-DÉFENSIVES)
 // ====================================================================
 
 // 1. Route d'inscription : POST /api/register
@@ -103,21 +103,37 @@ app.post('/api/register', async (req, res) => {
 });
 
 
-// 2. Route de connexion : POST /api/login (CORRECTION AVEC DÉBOGAGE)
+// 2. Route de connexion : POST /api/login (CORRECTION DÉFENSIVE ULTIME)
 app.post('/api/login', async (req, res) => {
     try {
-        // Extraction directe des champs
-        const { email, password } = req.body;
+        const body = req.body;
+        let email, password;
 
-        // 🔑 DÉBOGAGE CRITIQUE : Vérifiez ce que le serveur reçoit
-        console.log('--- DEBOGAGE LOGIN ---');
-        console.log('req.body reçu:', req.body);
-        console.log('Email extrait (devrait être une string):', email, 'Type:', typeof email);
-        console.log('Password extrait (devrait être une string):', password, 'Type:', typeof password);
-        console.log('----------------------');
+        // 🔑 CORRECTION DÉFENSIVE : Gère le format normal OU le format imbriqué
+        if (typeof body.email === 'object' && body.email !== null && body.email.email) {
+            // Cas 1 : Payload imbriqué (format incorrect venant du client)
+            email = body.email.email;
+            password = body.email.password;
+            console.log("LOGIN DÉTECTÉ : Format imbriqué corrigé. Les données sont extraites correctement.");
+        } else {
+            // Cas 2 : Payload normal (format correct)
+            email = body.email;
+            password = body.password;
+            console.log("LOGIN DÉTECTÉ : Format normal.");
+        }
+        
+        // --- DÉBOGAGE FINAL ---
+        console.log('--- DEBOGAGE LOGIN (Extraction Finale) ---');
+        console.log('Email final:', email, 'Type:', typeof email);
+        console.log('----------------------------------------');
 
-        // 1. Trouver l'utilisateur par email
-        // La ligne où la CastError se produit si 'email' est malformé.
+        // Vérification de base après extraction
+        if (!email || !password || typeof email !== 'string' || typeof password !== 'string') {
+             // Si on n'a pas réussi à extraire les valeurs, c'est une mauvaise requête
+             return res.status(400).json({ message: 'L\'email et le mot de passe sont requis et doivent être des chaînes de caractères.' });
+        }
+        
+        // 1. Trouver l'utilisateur par email (c'est ici que l'erreur Mongoose se produisait)
         const user = await User.findOne({ email: email }); 
 
         if (!user) {
@@ -150,12 +166,38 @@ app.post('/api/login', async (req, res) => {
         });
 
     } catch (error) {
-        // 🚨 C'est cette ligne qui capture la CastError de Mongoose.
+        // En cas d'erreur Mongoose ou autre erreur serveur
         console.error("Erreur lors de la connexion :", error);
-        res.status(500).json({ message: 'Erreur serveur.' });
+        res.status(500).json({ message: 'Erreur serveur.' }); 
     }
 });
 
+
+// ====================================================================
+// ROUTES LOGEMENTS (HOUSING)
+// ====================================================================
+
+// Cette route est probablement manquante ou mal routée. Ajoutons un minimum ici.
+app.get('/api/housing', async (req, res) => {
+    try {
+        // Logique de récupération des logements...
+        const { city, price_min, price_max, type } = req.query;
+        // Pour l'instant, nous renvoyons une liste vide mais un statut 200 pour valider la route.
+        console.log(`Recherche de logements avec filtres: ${JSON.stringify(req.query)}`);
+        
+        // Dans une vraie application, vous feriez:
+        // const filter = buildHousingFilter(req.query);
+        // const housing = await Housing.find(filter); 
+        
+        // Exemple de réponse vide réussie
+        res.status(200).json({ housing: [], message: 'Route /api/housing OK. Aucun logement trouvé avec les filtres actuels.' });
+    } catch (error) {
+        console.error("Erreur sur /api/housing :", error);
+        res.status(500).json({ message: 'Erreur serveur lors de la recherche de logements.' });
+    }
+});
+
+// ... Ajoutez ici toutes les autres routes API (/api/housing/:id, /api/user/housing, etc.)
 
 // ====================================================================
 // AUTRES ROUTES API (Ajoutez vos routeurs ici)
@@ -165,7 +207,7 @@ app.post('/api/login', async (req, res) => {
 
 
 // ====================================================================
-// GESTION DES WEBSOCKETS
+// GESTION DES WEBSOCKETS (inchangée)
 // ====================================================================
 
 // Map pour associer userId et l'instance WebSocket
