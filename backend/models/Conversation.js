@@ -1,28 +1,30 @@
 const mongoose = require('mongoose');
 
 const conversationSchema = new mongoose.Schema({
-    // Les participants à la conversation, référence au modèle User
-    participants: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true
-    }],
-    // Le logement associé à la conversation. Le champ est désormais optionnel.
+    // L'ID du logement concerné par cette discussion (requis pour les conversations initiales)
     housing: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Housing',
-        required: false
+        required: true,
     },
-    // Ajout d'un champ sujet pour identifier facilement la conversation
-    subject: {
-        type: String,
-        required: false
+    
+    // Les IDs des deux utilisateurs (landlord et tenant)
+    participants: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+    }],
+    
+    // 🔑 CORRECTION CLÉ : Référence au dernier message envoyé 
+    // Mongoose a besoin de ce champ pour effectuer le .populate('lastMessage') dans index.js
+    lastMessage: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Message',
+        default: null, // Commence sans message
     },
-    // Date de création de la conversation
-    createdAt: {
-        type: Date,
-        default: Date.now
-    }
+    
+}, {
+    timestamps: true // Ajoute automatiquement createdAt et updatedAt
 });
 
 const Conversation = mongoose.model('Conversation', conversationSchema);
