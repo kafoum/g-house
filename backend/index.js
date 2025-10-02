@@ -6,7 +6,7 @@ require('dotenv').config();
 // ====================================================================
 // 1. IMPORTS DES MODULES ET INITIALISATION
 // ====================================================================
-const authMiddleware = require('./middleware/auth'); // Assurez-vous que ce chemin est correct
+const authMiddleware = require('./middleware/auth'); 
 const jwt = require('jsonwebtoken');
 const express = require('express');
 const mongoose = require('mongoose');
@@ -35,14 +35,15 @@ cloudinary.config({
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-// Importe les modèles Mongoose (Assurez-vous que les chemins et noms sont corrects)
+// Importe les modèles Mongoose
 const User = require('./models/User');
 const Housing = require('./models/Housing');
 const Booking = require('./models/Booking');
-const Notification = require('./models/Notification');
-const Conversation = require('./models/Conversation');
 const Message = require('./models/Message');
-
+const Conversation = require('./models/Conversation');
+// Assurez-vous d'importer ProfileDoc et Notification si vous en avez besoin
+// const ProfileDoc = require('./models/ProfileDoc'); 
+// const Notification = require('./models/Notification'); 
 
 // Initialisation de l'application Express
 const app = express();
@@ -54,36 +55,48 @@ const PORT = process.env.PORT || 10000;
 
 
 // ====================================================================
-// 2. MIDDLEWARE GÉNÉRAUX
+// 2. MIDDLEWARE GÉNÉRAUX ET CONNEXION DB
 // ====================================================================
 
 // Connexion à la base de données MongoDB
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('Connexion à MongoDB établie avec succès'))
-    .catch(err => console.error('Erreur de connexion à MongoDB:', err));
+    .catch(err => console.error('Erreur de connexion à MongoDB:', err)); 
 
-// Middleware CORS (ajustez allowedOrigins si nécessaire)
+// Middleware CORS (CLÉ DE CORRECTION SI VOUS AVEZ DES PROBLÈMES)
 const allowedOrigins = [
-    'https://g-house.vercel.app', 
-    'http://localhost:5173', 
+    'https://g-house.vercel.app', // Exemple d'URL Vercel
+    'http://localhost:5173',       // Exemple local
+    'http://localhost:3000',
 ];
+
+// Ajoute l'URL du FRONTEND (déployé) à la liste si elle est dans .env
+if (process.env.FRONTEND_URL) {
+    const frontendUrl = process.env.FRONTEND_URL.replace(/\/$/, '');
+    if (!allowedOrigins.includes(frontendUrl)) {
+        allowedOrigins.push(frontendUrl);
+    }
+}
+
 app.use(cors({
-    origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) {
+    origin: function (origin, callback) {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) {
             return callback(null, true);
         }
-        callback(new Error('Not allowed by CORS'));
+        console.warn(`CORS Error: Origin ${origin} not allowed.`);
+        return callback(new Error('Not allowed by CORS'), false);
     },
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     credentials: true,
 }));
 
-// Middleware pour parser les corps de requêtes JSON (pour auth, booking, etc.)
+// Middleware pour parser les corps de requêtes JSON
 app.use(express.json());
 
 
 // ====================================================================
-// 3. ROUTES D'AUTHENTIFICATION (Précédemment corrigées)
+// 3. ROUTES D'AUTHENTIFICATION
 // ====================================================================
 
 // POST /api/register
@@ -103,7 +116,10 @@ app.post('/api/register', async (req, res) => {
         }
         const newUser = new User({ name, email, password, role: lowerCaseRole });
         await newUser.save();
-        res.status(201).json({ message: 'Inscription réussie. Vous pouvez maintenant vous connecter.', user: { id: newUser._id, name: newUser.name, email: newUser.email, role: newUser.role }});
+        res.status(201).json({ 
+            message: 'Inscription réussie. Vous pouvez maintenant vous connecter.',
+            user: { id: newUser._id, name: newUser.name, email: newUser.email, role: newUser.role }
+        });
     } catch (error) {
         console.error("Erreur lors de l'inscription:", error);
         res.status(500).json({ message: "Erreur serveur interne lors de l'inscription." });
@@ -139,7 +155,28 @@ app.post('/api/login', async (req, res) => {
 
 
 // ====================================================================
-// 4. ROUTES PAIEMENT (STRIPE) (NOUVEAU)
+// 4. ROUTES LOGEMENTS (HOUSING)
+// ====================================================================
+
+// GET /api/housing : Récupérer toutes les annonces publiques (DOIT FONCTIONNER SANS CONNEXION)
+app.get('/api/housing', async (req, res) => {
+    try {
+        const housingList = await Housing.find()
+            .populate('landlord', 'name email')
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({ housing: housingList });
+    } catch (error) {
+        console.error("Erreur sur GET /api/housing:", error);
+        res.status(500).json({ message: 'Erreur serveur lors de la récupération des annonces.' });
+    }
+});
+
+// ... (Ajoutez les autres routes GET /api/housing/:id, POST /api/user/housing, etc.) ...
+
+
+// ====================================================================
+// 5. ROUTES PAIEMENT (STRIPE)
 // ====================================================================
 
 // POST /api/bookings/create-checkout-session : Crée une session de paiement Stripe
@@ -148,9 +185,8 @@ app.post('/api/bookings/create-checkout-session', authMiddleware, async (req, re
         const { housingId, startDate, endDate, totalPrice } = req.body;
         const tenantId = req.userData.userId;
 
-        // 1. Vérifier les données et le logement
-        if (!housingId || !startDate || !endDate || !totalPrice || totalPrice <= 0) {
-            return res.status(400).json({ message: 'Données de réservation invalides.' });
+        if (!housingId || !startDate || !endDate || !totalPrice || totalPrice <= 0 || !process.env.FRONTEND_URL) {
+            return res.status(400).json({ message: 'Données de réservation invalides ou FRONTEND_URL manquant.' });
         }
 
         const housing = await Housing.findById(housingId);
@@ -158,45 +194,36 @@ app.post('/api/bookings/create-checkout-session', authMiddleware, async (req, re
             return res.status(404).json({ message: 'Logement non trouvé.' });
         }
 
-        // 2. Créer l'objet Booking temporaire pour stocker les infos
-        // Note: Le statut passera à 'confirmed' via un Webhook Stripe
+        // Créer l'objet Booking temporaire (statut pending_payment)
         const newBooking = new Booking({
             housing: housingId,
             tenant: tenantId,
             startDate: new Date(startDate),
             endDate: new Date(endDate),
             totalPrice: totalPrice,
-            status: 'pending_payment' // Statut temporaire
+            status: 'pending_payment'
         });
         await newBooking.save();
 
-        // 3. Créer la session de paiement Stripe
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
-            line_items: [
-                {
-                    price_data: {
-                        currency: 'eur', // Assurez-vous que la devise est la bonne
-                        product_data: {
-                            name: `Réservation : ${housing.title}`,
-                        },
-                        unit_amount: Math.round(totalPrice * 100), // Stripe utilise des centimes
-                    },
-                    quantity: 1,
+            line_items: [{
+                price_data: {
+                    currency: 'eur', 
+                    product_data: { name: `Réservation : ${housing.title}`, },
+                    unit_amount: Math.round(totalPrice * 100),
                 },
-            ],
+                quantity: 1,
+            }],
             mode: 'payment',
-            // URL de redirection après succès et échec
             success_url: `${process.env.FRONTEND_URL}/success?session_id={CHECKOUT_SESSION_ID}&booking_id=${newBooking._id}`,
             cancel_url: `${process.env.FRONTEND_URL}/housing/${housingId}?cancelled=true`,
-            // Métadonnées pour le webhook
             metadata: {
                 bookingId: newBooking._id.toString(),
                 tenantId: tenantId.toString(),
             },
         });
 
-        // 4. Renvoyer l'URL de la session Stripe
         res.status(200).json({ url: session.url, sessionId: session.id, bookingId: newBooking._id });
 
     } catch (error) {
@@ -206,77 +233,11 @@ app.post('/api/bookings/create-checkout-session', authMiddleware, async (req, re
 });
 
 
-// ... (Toutes les autres routes Housing, Booking, ProfileDoc, Notification) ...
-
 // ====================================================================
-// 5. ROUTES MESSAGERIE (Conversations & Messages) (AJOUTÉES/CORRIGÉES)
+// 6. ROUTES MESSAGERIE (Conversations & Messages)
 // ====================================================================
 
-// POST /api/conversations/start : Démarrer ou trouver une conversation existante
-app.post('/api/conversations/start', authMiddleware, async (req, res) => {
-    try {
-        const { housingId, recipientId } = req.body;
-        const senderId = req.userData.userId;
-
-        if (!housingId || !recipientId) {
-            return res.status(400).json({ message: 'Les IDs de logement et de destinataire sont requis.' });
-        }
-
-        // 1. Vérifier si une conversation existe déjà pour ce logement et ces deux participants
-        let conversation = await Conversation.findOne({
-            housing: housingId,
-            participants: { $all: [senderId, recipientId] }
-        })
-        .populate('housing', 'title images')
-        .populate('participants', 'name email');
-        
-        // 2. Si non, créer une nouvelle conversation
-        if (!conversation) {
-            conversation = new Conversation({
-                housing: housingId,
-                participants: [senderId, recipientId],
-            });
-            await conversation.save();
-            
-            // Re-populer après la sauvegarde pour renvoyer le même format
-            conversation = await Conversation.findById(conversation._id)
-                .populate('housing', 'title images')
-                .populate('participants', 'name email');
-        }
-
-        res.status(200).json({ conversation });
-    } catch (error) {
-        console.error("Erreur sur POST /api/conversations/start :", error);
-        res.status(500).json({ message: 'Erreur serveur lors du démarrage de la conversation.' });
-    }
-});
-
-
-// GET /api/conversations/:id/messages : Récupérer les messages d'une conversation
-app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const userId = req.userData.userId;
-        
-        // 1. Vérifier l'accès
-        const conversation = await Conversation.findById(id);
-        if (!conversation || !conversation.participants.map(p => p.toString()).includes(userId)) {
-            return res.status(403).json({ message: 'Accès refusé. Vous ne faites pas partie de cette conversation.' });
-        }
-        
-        // 2. Récupérer les messages
-        const messages = await Message.find({ conversation: id })
-            .populate('sender', 'name') // Pour afficher le nom de l'expéditeur dans le chat
-            .sort({ createdAt: 1 }); // Ordre chronologique
-            
-        res.status(200).json({ messages });
-    } catch (error) {
-        console.error("Erreur sur GET /api/conversations/:id/messages :", error);
-        res.status(500).json({ message: 'Erreur serveur lors de la récupération des messages.' });
-    }
-});
-
-// GET /api/conversations : Récupère la liste des conversations (Déjà présent)
+// GET /api/conversations : Récupère la liste des conversations
 app.get('/api/conversations', authMiddleware, async (req, res) => {
     try {
         const conversations = await Conversation.find({ participants: req.userData.userId })
@@ -296,29 +257,88 @@ app.get('/api/conversations', authMiddleware, async (req, res) => {
 });
 
 
+// POST /api/conversations/start : Démarrer ou trouver une conversation existante
+app.post('/api/conversations/start', authMiddleware, async (req, res) => {
+    try {
+        const { housingId, recipientId } = req.body;
+        const senderId = req.userData.userId;
+
+        if (!housingId || !recipientId) {
+            return res.status(400).json({ message: 'Les IDs de logement et de destinataire sont requis.' });
+        }
+
+        let conversation = await Conversation.findOne({
+            housing: housingId,
+            participants: { $all: [senderId, recipientId] }
+        })
+        .populate('housing', 'title images')
+        .populate('participants', 'name email');
+        
+        if (!conversation) {
+            conversation = new Conversation({
+                housing: housingId,
+                participants: [senderId, recipientId],
+            });
+            await conversation.save();
+            
+            conversation = await Conversation.findById(conversation._id)
+                .populate('housing', 'title images')
+                .populate('participants', 'name email');
+        }
+
+        res.status(200).json({ conversation });
+    } catch (error) {
+        console.error("Erreur sur POST /api/conversations/start :", error);
+        res.status(500).json({ message: 'Erreur serveur lors du démarrage de la conversation.' });
+    }
+});
+
+
+// GET /api/conversations/:id/messages : Récupérer les messages d'une conversation
+app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.userData.userId;
+        
+        const conversation = await Conversation.findById(id);
+        if (!conversation || !conversation.participants.map(p => p.toString()).includes(userId)) {
+            return res.status(403).json({ message: 'Accès refusé. Vous ne faites pas partie de cette conversation.' });
+        }
+        
+        const messages = await Message.find({ conversation: id })
+            .populate('sender', 'name') 
+            .sort({ createdAt: 1 });
+            
+        res.status(200).json({ messages });
+    } catch (error) {
+        console.error("Erreur sur GET /api/conversations/:id/messages :", error);
+        res.status(500).json({ message: 'Erreur serveur lors de la récupération des messages.' });
+    }
+});
+
+
 // ====================================================================
-// 6. GESTION DES WEBSOCKETS (inchangée)
+// 7. GESTION DES WEBSOCKETS
 // ====================================================================
 
 const userWsMap = new Map(); 
 wss.on('connection', (ws, req) => {
-    let userId = null;
+    let userId = null; 
     const token = req.url.split('token=')[1];
+    
+    // ... Logique d'authentification et de gestion des messages WS (inchangée) ...
     if (token) {
         try {
             const decodedToken = jwt.verify(token, process.env.JWT_SECRET);
             userId = decodedToken.userId; 
             userWsMap.set(userId, ws);
-            console.log(`Utilisateur connecté via WebSocket: ${userId}`);
             ws.send(JSON.stringify({ type: 'STATUS', message: 'Connexion WebSocket établie.', userId }));
         } catch (error) {
-            console.error('Authentification WebSocket échouée:', error);
             ws.send(JSON.stringify({ type: 'ERROR', message: 'Token invalide ou expiré.' }));
             ws.close(1008, 'Policy Violation: Invalid token');
             return;
         }
     } else {
-        ws.send(JSON.stringify({ type: 'ERROR', message: 'Token manquant.' }));
         ws.close(1008, 'Policy Violation: Missing token');
         return;
     }
@@ -338,9 +358,7 @@ wss.on('connection', (ws, req) => {
 
                 const messageToSend = {
                     type: 'NEW_MESSAGE',
-                    payload: {
-                        _id: newMessage._id, content: newMessage.content, sender: { _id: userId }, createdAt: newMessage.createdAt, conversation: conversationId,
-                    }
+                    payload: { _id: newMessage._id, content: newMessage.content, sender: { _id: userId }, createdAt: newMessage.createdAt, conversation: conversationId, }
                 };
                 
                 const recipientWs = userWsMap.get(recipientId.toString());
@@ -357,17 +375,14 @@ wss.on('connection', (ws, req) => {
     });
 
     ws.on('close', () => {
-        if (userId) {
-            userWsMap.delete(userId);
-            console.log(`Utilisateur déconnecté via WebSocket: ${userId}`);
-        }
+        if (userId) userWsMap.delete(userId);
     });
 });
 
 
-// ----------------------------------------------------\
-// FIN DES ROUTES API
-// ----------------------------------------------------\
+// ====================================================================
+// ROUTES DE FIN ET DÉMARRAGE DU SERVEUR
+// ====================================================================
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
