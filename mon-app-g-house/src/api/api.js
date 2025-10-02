@@ -27,6 +27,7 @@ api.interceptors.request.use(config => {
         config.headers.Authorization = `Bearer ${token}`; 
     }
 
+    // Assurer que Content-Type n'est pas inclus pour les uploads de fichiers (FormData)
     if (config.data instanceof FormData) {
         delete config.headers['Content-Type'];
     }
@@ -49,8 +50,6 @@ export const login = (credentials) => {
     return api.post('/login', credentials);
 };
 
-// ... (Autres fonctions d'authentification)
-
 // ======================================================================
 // 4. FONCTIONS LOGEMENTS (HOUSING)
 // ======================================================================
@@ -63,24 +62,26 @@ export const getHousingList = (params) => {
     return api.get('/housing', { params });
 };
 
-// Fonction correcte (au singulier)
 export const getHousingDetail = (id) => {
     return api.get(`/housing/${id}`);
 };
 
-/**
- * 🔑 CORRECTION VERCEL : Ajout de la fonction manquante (au pluriel) pour la compatibilité avec CreateHousing.jsx
- * Elle est un alias pour la fonction correcte `getHousingDetail`.
- */
 export const getHousingDetails = (id) => {
     return getHousingDetail(id); 
+};
+
+/**
+ * 🔑 CORRECTION VERCEL : Ajout de la fonction manquante.
+ * Met à jour les détails d'un logement existant.
+ */
+export const updateHousing = (id, housingData) => {
+    // Utilise la méthode PUT ou PATCH, souvent PUT pour une mise à jour complète
+    return api.put(`/housing/${id}`, housingData); 
 };
 
 export const deleteHousing = (id) => {
     return api.delete(`/housing/${id}`);
 };
-
-// ... (Autres fonctions Housing)
 
 // ======================================================================
 // 5. FONCTIONS RÉSERVATIONS & PAIEMENT
@@ -111,17 +112,11 @@ export const startConversation = (housingId, recipientId) => {
     return api.post('/conversations/start', { housingId, recipientId });
 };
 
-/**
- * Récupère les détails d'une conversation (pour corriger l'erreur de Conversation.jsx).
- */
 export const getConversationDetails = (conversationId) => {
     return api.get(`/conversations/${conversationId}`);
 };
 
 
-/**
- * Récupérer tous les messages d'une conversation (pour l'historique).
- */
 export const getMessages = (conversationId) => {
     return api.get(`/conversations/${conversationId}/messages`);
 };
