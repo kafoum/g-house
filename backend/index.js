@@ -52,7 +52,7 @@ const Message = require('./models/Message');
 const app = express();
 const server = http.createServer(app); // Utiliser le serveur HTTP pour Express et WebSocket
 const PORT = process.env.PORT || 10000;
-const DB_URI = process.env.MONGO_URI;
+const DB_URI = process.env.MONGODB_URI;
 
 // Middleware Express de base
 app.use(cors({
