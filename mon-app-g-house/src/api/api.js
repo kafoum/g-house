@@ -6,7 +6,6 @@ import axios from 'axios';
 // 1. CONFIGURATION DE L'INSTANCE AXIOS
 // ======================================================================
 
-// 🚨 CLÉ DE LA CORRECTION : VÉRIFIEZ ABSOLUMENT QUE VITE_API_URL EST CORRECTE DANS VOTRE .env ET SUR VOTRE HÉBERGEUR
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://g-house-api.onrender.com/api'; 
 console.log("API BASE URL:", API_BASE_URL);
 
@@ -28,7 +27,6 @@ api.interceptors.request.use(config => {
         config.headers.Authorization = `Bearer ${token}`; 
     }
 
-    // 🔑 Assurer que Content-Type n'est pas inclus pour les uploads de fichiers (FormData)
     if (config.data instanceof FormData) {
         delete config.headers['Content-Type'];
     }
@@ -51,48 +49,39 @@ export const login = (credentials) => {
     return api.post('/login', credentials);
 };
 
+// ... (Autres fonctions d'authentification)
 
 // ======================================================================
-// 4. FONCTIONS LOGEMENTS (Housing)
+// 4. FONCTIONS LOGEMENTS (HOUSING)
 // ======================================================================
 
-// Cette fonction doit marcher même si l'utilisateur n'est pas connecté
-export const getHousingList = () => {
-    return api.get('/housing');
+export const createHousing = (housingData) => {
+    // La route d'upload est souvent /housing, et le middleware multer gère l'upload
+    return api.post('/housing', housingData); 
 };
 
-export const getHousingDetails = (id) => {
+export const getHousingList = (params) => {
+    return api.get('/housing', { params });
+};
+
+export const getHousingDetail = (id) => {
     return api.get(`/housing/${id}`);
 };
 
-export const getUserHousing = () => {
-    return api.get('/user/housing'); // Protégée par authMiddleware
-};
-
-// Utiliser FormData dans le composant appelant
-export const createHousing = (housingData) => {
-    return api.post('/user/housing', housingData); 
-};
-
-// Utiliser FormData dans le composant appelant
-export const updateHousing = (id, housingData) => {
-    return api.put(`/user/housing/${id}`, housingData); 
-};
-
 export const deleteHousing = (id) => {
-    return api.delete(`/user/housing/${id}`);
+    return api.delete(`/housing/${id}`);
 };
 
+// ... (Autres fonctions Housing)
 
 // ======================================================================
 // 5. FONCTIONS RÉSERVATIONS & PAIEMENT
 // ======================================================================
 
 export const getBookings = () => {
-    return api.get('/user/bookings'); // Protégée par authMiddleware
+    return api.get('/user/bookings'); 
 };
 
-// 🔑 Ajout de la fonction de création de session de paiement Stripe
 export const createBookingSession = (bookingData) => {
     return api.post('/bookings/create-checkout-session', bookingData);
 };
@@ -110,12 +99,26 @@ export const getConversationsList = () => {
     return api.get('/conversations');
 };
 
-// 🔑 Fonction pour démarrer une nouvelle conversation
+/**
+ * Fonction pour démarrer une nouvelle conversation ou en trouver une existante.
+ */
 export const startConversation = (housingId, recipientId) => {
     return api.post('/conversations/start', { housingId, recipientId });
 };
 
-// 🔑 Fonction pour récupérer les messages
+/**
+ * 🔑 AJOUT CRITIQUE (Pour corriger l'erreur Vercel)
+ * Récupère les détails d'une conversation (participants, logement).
+ */
+export const getConversationDetails = (conversationId) => {
+    return api.get(`/conversations/${conversationId}`);
+};
+
+
+/**
+ * 🔑 FONCTION CRITIQUE (Pour charger l'historique)
+ * Récupérer tous les messages d'une conversation : GET /conversations/:id/messages
+ */
 export const getMessages = (conversationId) => {
     return api.get(`/conversations/${conversationId}/messages`);
 };
