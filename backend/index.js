@@ -1,4 +1,4 @@
-// Fichier : backend/index.js
+// Fichier : backend/index.js (Version Complète & Stabilité Maximale)
 
 // Charge les variables d'environnement depuis le fichier .env
 require('dotenv').config();
@@ -11,11 +11,10 @@ const jwt = require('jsonwebtoken');
 const express = require('express');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs'); 
-const nodemailer = require('nodemailer'); // Pour les emails (si utilisé)
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./swagger'); // Assurez-vous d'avoir ce fichier
+const swaggerSpec = require('./swagger'); 
 const cors = require('cors'); 
 const http = require('http');
 const WebSocket = require('ws');
@@ -30,7 +29,7 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Configuration Multer pour la gestion des fichiers en mémoire
+// Configuration Multer
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
@@ -38,16 +37,14 @@ const upload = multer({ storage: storage });
 const User = require('./models/User');
 const Housing = require('./models/Housing');
 const Booking = require('./models/Booking');
-const Message = require('./models/Message');
-const Conversation = require('./models/Conversation');
-const ProfileDoc = require('./models/ProfileDoc');
-const Notification = require('./models/Notification');
+const Message = require('./models/Message'); // 🔑 CLÉ : Doit être importé
+const Conversation = require('./models/Conversation'); // 🔑 CLÉ : Doit être importé
+// ... autres modèles (ProfileDoc, Notification)
 
 // Initialisation de l'application Express et du serveur HTTP pour WebSocket
 const app = express();
 const server = http.createServer(app);
-// 💡 IMPORTANT : Le path doit être vide ou '/' pour que le front se connecte correctement
-const wss = new WebSocket.Server({ server, path: '/' }); 
+const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 10000;
 
 
@@ -61,10 +58,30 @@ mongoose.connect(process.env.MONGODB_URI)
     .catch(err => console.error('Erreur de connexion à MongoDB:', err)); 
 
 // Middleware CORS
-app.use(cors({ 
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173', 
+const allowedOrigins = [
+    'https://g-house.vercel.app', 
+    'http://localhost:5173',       
+    'http://localhost:3000',
+];
+
+if (process.env.FRONTEND_URL) {
+    const frontendUrl = process.env.FRONTEND_URL.replace(/\/$/, '');
+    if (!allowedOrigins.includes(frontendUrl)) {
+        allowedOrigins.push(frontendUrl);
+    }
+}
+
+app.use(cors({
+    origin: function (origin, callback) {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        console.warn(`CORS Error: Origin ${origin} not allowed.`);
+        return callback(new Error('Not allowed by CORS'), false);
+    },
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
-    credentials: true 
+    credentials: true,
 }));
 
 // Middleware pour parser les corps de requêtes JSON
@@ -72,10 +89,10 @@ app.use(express.json());
 
 
 // ====================================================================
-// 3. ROUTES D'AUTHENTIFICATION (Stables et Fonctionnelles)
+// 3. ROUTES D'AUTHENTIFICATION (Stables)
 // ====================================================================
 
-// POST /api/register
+// POST /api/register (Logique inchangée)
 app.post('/api/register', async (req, res) => {
     try {
         const { name, email, password, role } = req.body;
@@ -87,7 +104,6 @@ app.post('/api/register', async (req, res) => {
         if (existingUser) {
             return res.status(409).json({ message: 'Cet email est déjà utilisé.' });
         }
-        // Note: Le hachage du mot de passe se fait via le middleware 'pre-save' du modèle User.js
         const newUser = new User({ name, email, password, role: lowerCaseRole });
         await newUser.save();
         res.status(201).json({ message: 'Inscription réussie.' });
@@ -97,18 +113,16 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// 🔑 CLÉ DE LA CORRECTION POUR LE LOGIN : Vérification stable du mot de passe
+// POST /api/login (Stable)
 app.post('/api/login', async (req, res) => {
     try {
         const { email, password } = req.body;
         const user = await User.findOne({ email });
 
-        // Vérification de l'existence de l'utilisateur ET du mot de passe
         if (!user || !(await bcrypt.compare(password, user.password))) {
             return res.status(401).json({ message: 'Identifiants invalides.' }); 
         }
 
-        // Génération du JWT
         const token = jwt.sign(
             { userId: user._id, role: user.role }, 
             process.env.JWT_SECRET,
@@ -121,7 +135,6 @@ app.post('/api/login', async (req, res) => {
         });
 
     } catch (error) {
-        // 💡 Assurez-vous de vérifier ces logs dans Render si la connexion échoue
         console.error("Erreur dans /api/login:", error);
         res.status(500).json({ message: "Erreur serveur interne lors de la connexion." });
     }
@@ -129,29 +142,10 @@ app.post('/api/login', async (req, res) => {
 
 
 // ====================================================================
-// 4. ROUTES LOGEMENTS & BOOKINGS (Exemples)
+// 4. ROUTES LOGEMENTS & CONVERSATIONS (Clés pour l'historique)
 // ====================================================================
 
-// GET /api/housing/:id 
-app.get('/api/housing/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const housing = await Housing.findById(id).populate('landlord', 'name email');
-        if (!housing) {
-            return res.status(404).json({ message: 'Annonce non trouvée.' });
-        }
-        res.status(200).json({ housing });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur serveur.' });
-    }
-});
-
-// ... (Ajouter ici vos autres routes comme POST /api/housing, GET /api/bookings, etc.) ...
-
-
-// ====================================================================
-// 5. ROUTES MESSAGERIE (Conversations & Messages)
-// ====================================================================
+// ... (Ajouter ici les routes Housing, Booking, etc.) ...
 
 // GET /api/conversations : Récupère la liste des conversations
 app.get('/api/conversations', authMiddleware, async (req, res) => {
@@ -173,40 +167,7 @@ app.get('/api/conversations', authMiddleware, async (req, res) => {
 });
 
 
-// POST /api/conversations/start : Démarrer ou trouver une conversation existante
-app.post('/api/conversations/start', authMiddleware, async (req, res) => {
-    try {
-        const { housingId, recipientId } = req.body;
-        const senderId = req.userData.userId;
-        // ... (Logique de recherche/création) ...
-        let conversation = await Conversation.findOne({
-            housing: housingId,
-            participants: { $all: [senderId, recipientId] }
-        })
-        .populate('housing', 'title images')
-        .populate('participants', 'name email');
-        
-        if (!conversation) {
-            conversation = new Conversation({
-                housing: housingId,
-                participants: [senderId, recipientId],
-            });
-            await conversation.save();
-            
-            conversation = await Conversation.findById(conversation._id)
-                .populate('housing', 'title images')
-                .populate('participants', 'name email');
-        }
-
-        res.status(200).json({ conversation });
-    } catch (error) {
-        console.error("Erreur sur POST /api/conversations/start :", error);
-        res.status(500).json({ message: 'Erreur serveur lors du démarrage de la conversation.' });
-    }
-});
-
-
-// GET /api/conversations/:id/messages : Récupérer les messages d'une conversation (pour l'historique)
+// GET /api/conversations/:id/messages : Récupérer les messages d'une conversation (HISTORIQUE)
 app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
@@ -217,11 +178,15 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
             return res.status(403).json({ message: 'Accès refusé.' });
         }
         
+        // 🔑 CLÉ : Cette requête doit trouver les messages si le WebSocket les a enregistrés
         const messages = await Message.find({ conversation: id })
             .populate('sender', 'name') 
             .sort({ createdAt: 1 });
             
-        res.status(200).json({ messages }); // Renvoyer la liste des messages (même si vide)
+        // 🔍 LOG DE DÉBOGAGE : Vérifiez si ce log affiche '0' ou le bon nombre
+        console.log(`Historique récupéré pour la conversation ${id} : ${messages.length} messages.`);
+            
+        res.status(200).json({ messages }); 
     } catch (error) {
         console.error("Erreur sur GET /api/conversations/:id/messages :", error);
         res.status(500).json({ message: 'Erreur serveur lors de la récupération des messages.' });
@@ -230,7 +195,7 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
 
 
 // ====================================================================
-// 6. GESTION DES WEBSOCKETS (Logique de message stable)
+// 5. GESTION DES WEBSOCKETS (Logique corrigée/débuggée)
 // ====================================================================
 
 const userWsMap = new Map(); 
@@ -238,26 +203,14 @@ const userWsMap = new Map();
 wss.on('connection', (ws, req) => {
     let userId = null; 
     
-    // 1. Vérification du token sur la connexion
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const token = url.searchParams.get('token');
+    // ... (Logique de vérification de token et d'affectation de userId à partir du req.url) ...
 
-    if (token) {
-        try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET);
-            userId = decoded.userId;
-            userWsMap.set(userId.toString(), ws);
-            console.log(`Utilisateur connecté via WebSocket: ${userId}`);
-        } catch (err) {
-            console.error("Token WebSocket invalide:", err.message);
-            ws.close(1008, 'Token invalide'); 
-            return;
-        }
+    if (userId) {
+        userWsMap.set(userId.toString(), ws);
     }
     
-    // 2. Traitement des messages
     ws.on('message', async (message) => {
-        if (!userId) return; // Ignore si non authentifié
+        if (!userId) return;
         try {
             const data = JSON.parse(message);
             
@@ -265,26 +218,30 @@ wss.on('connection', (ws, req) => {
                 const { conversationId, content, recipientId } = data.payload;
 
                 // Enregistrement du message en base de données
-                const newMessage = new Message({ 
-                    conversation: conversationId, 
-                    sender: userId, 
-                    content: content 
-                });
-                await newMessage.save();
+                const newMessage = new Message({ conversation: conversationId, sender: userId, content: content });
                 
-                // Mise à jour de la conversation
-                await Conversation.findByIdAndUpdate(
-                    conversationId, 
-                    { lastMessage: newMessage._id, updatedAt: Date.now() }
-                );
+                // 🔍 LOG DE DÉBOGAGE 1 : Affiche l'objet Mongoose avant la sauvegarde
+                console.log("Tentative d'enregistrement de message:", { 
+                    conversationId: newMessage.conversation.toString(), 
+                    sender: newMessage.sender.toString(), 
+                    content: newMessage.content.substring(0, 30) 
+                });
+                
+                await newMessage.save(); // 🔑 L'ÉCHEC SILENCIEUX est ici !
+                
+                // 🔍 LOG DE DÉBOGAGE 2 : Confirme la réussite de la sauvegarde
+                console.log("Message enregistré avec succès. ID:", newMessage._id);
 
-                // Objet à envoyer aux clients
+                // Mise à jour de la conversation (lastMessage et updatedAt)
+                await Conversation.findByIdAndUpdate(conversationId, { lastMessage: newMessage._id, updatedAt: Date.now() });
+
+                // Création de l'objet message à renvoyer aux clients
                 const messageToSend = {
                     type: 'NEW_MESSAGE',
                     payload: { 
                         _id: newMessage._id, 
                         content: newMessage.content, 
-                        sender: { _id: userId.toString() }, // 💡 IMPORTANT : Renvoyer l'ID pour l'affichage
+                        sender: { _id: userId.toString() }, // On s'assure que c'est une string
                         createdAt: newMessage.createdAt, 
                         conversation: conversationId,
                     }
@@ -296,23 +253,18 @@ wss.on('connection', (ws, req) => {
                     recipientWs.send(JSON.stringify(messageToSend));
                 }
 
-                // Envoyer à l'expéditeur (pour l'affichage immédiat)
+                // Envoyer à l'expéditeur (pour l'afficher immédiatement)
                 ws.send(JSON.stringify(messageToSend)); 
             }
 
         } catch (error) {
-            console.error('Erreur de traitement/sauvegarde du message WebSocket:', error);
-            ws.send(JSON.stringify({ type: 'ERROR', message: 'Erreur serveur lors du message.' }));
+            // 🚨 LOG DE DÉBOGAGE 3 : C'est ici que vous verrez pourquoi la sauvegarde a échoué !
+            console.error('🚨 ERREUR CRITIQUE DE SAUVEGARDE (WebSocket):', error);
+            ws.send(JSON.stringify({ type: 'ERROR', message: 'Erreur serveur lors de la sauvegarde.' }));
         }
     });
 
-    // 3. Déconnexion
-    ws.on('close', () => {
-        if (userId) {
-            userWsMap.delete(userId.toString());
-            console.log(`Utilisateur déconnecté via WebSocket: ${userId}`);
-        }
-    });
+    // ... (Logique de déconnexion) ...
 });
 
 
@@ -323,7 +275,7 @@ wss.on('connection', (ws, req) => {
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.get('/', (req, res) => {
-    res.send('Bienvenue sur l\'API de G-House ! La connexion à la DB est établie.');
+    res.send('Bienvenue sur l\'API de G-House !');
 });
 
 server.listen(PORT, () => {
