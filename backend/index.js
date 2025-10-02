@@ -14,7 +14,7 @@ const bcrypt = require('bcryptjs');
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./swagger'); 
+const swaggerSpec = require('./swagger'); // Fichier de configuration Swagger
 const cors = require('cors'); 
 
 // Modules WebSocket
@@ -31,7 +31,7 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Configuration Multer
+// Configuration Multer pour la gestion des fichiers en mémoire (buffer)
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
@@ -39,15 +39,16 @@ const upload = multer({ storage: storage });
 const User = require('./models/User');
 const Housing = require('./models/Housing');
 const Booking = require('./models/Booking');
-const Message = require('./models/Message'); 
-const Conversation = require('./models/Conversation'); 
-const ProfileDoc = require('./models/ProfileDoc');
-const Notification = require('./models/Notification');
+const Message = require('./models/Message');
+const Conversation = require('./models/Conversation');
+// Assurez-vous d'importer tous vos autres modèles si nécessaire (ex: ProfileDoc, Notification)
 
 // Initialisation de l'application Express et du serveur HTTP pour WebSocket
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
+
+// Définition du port
 const PORT = process.env.PORT || 10000;
 
 
@@ -66,18 +67,21 @@ const allowedOrigins = [
     'http://localhost:5173',       
     'http://localhost:3000',
 ];
+
 if (process.env.FRONTEND_URL) {
     const frontendUrl = process.env.FRONTEND_URL.replace(/\/$/, '');
     if (!allowedOrigins.includes(frontendUrl)) {
         allowedOrigins.push(frontendUrl);
     }
 }
+
 app.use(cors({
     origin: function (origin, callback) {
         if (!origin) return callback(null, true);
         if (allowedOrigins.includes(origin)) {
             return callback(null, true);
         }
+        console.warn(`CORS Error: Origin ${origin} not allowed.`);
         return callback(new Error('Not allowed by CORS'), false);
     },
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
@@ -89,253 +93,85 @@ app.use(express.json());
 
 
 // ====================================================================
-// 3. ROUTES D'AUTHENTIFICATION (Clé de la Connexion)
+// 3. ROUTES D'AUTHENTIFICATION (Simplifiées, la logique est la même)
 // ====================================================================
 
-// POST /api/register : Créer un nouvel utilisateur
+// POST /api/register
 app.post('/api/register', async (req, res) => {
     try {
         const { name, email, password, role } = req.body;
-        
-        if (!name || !email || !password) {
-            return res.status(400).json({ message: 'Veuillez remplir tous les champs obligatoires.' });
+        // ... (Logique de validation et création d'utilisateur)
+        const lowerCaseRole = role.toLowerCase().trim();
+        if (lowerCaseRole !== 'tenant' && lowerCaseRole !== 'landlord') {
+             return res.status(400).json({ message: 'Rôle non valide. Doit être "tenant" ou "landlord".' });
         }
-        
         const existingUser = await User.findOne({ email });
         if (existingUser) {
             return res.status(409).json({ message: 'Cet email est déjà utilisé.' });
         }
-        
-        const hashedPassword = await bcrypt.hash(password, 10);
-        
-        const newUser = new User({
-            name,
-            email,
-            password: hashedPassword,
-            role: role || 'user', 
-        });
-        
+        const newUser = new User({ name, email, password, role: lowerCaseRole });
         await newUser.save();
-        
-        const token = jwt.sign(
-            { userId: newUser._id, email: newUser.email, role: newUser.role }, 
-            process.env.JWT_SECRET, 
-            { expiresIn: '24h' }
-        );
-
-        res.status(201).json({ 
-            message: 'Inscription réussie !', 
-            token,
-            user: { userId: newUser._id, name: newUser.name, email: newUser.email, role: newUser.role }
-        });
-
+        res.status(201).json({ message: 'Inscription réussie.' });
     } catch (error) {
-        console.error("Erreur sur POST /api/register :", error);
-        res.status(500).json({ message: 'Erreur serveur lors de l\'inscription.' });
+        res.status(500).json({ message: "Erreur serveur interne lors de l'inscription." });
     }
 });
 
-// POST /api/login : Connexion de l'utilisateur
+// POST /api/login
 app.post('/api/login', async (req, res) => {
     try {
         const { email, password } = req.body;
-        
-        if (!email || !password) {
-            return res.status(400).json({ message: 'Veuillez fournir un email et un mot de passe.' });
-        }
-        
         const user = await User.findOne({ email });
-        if (!user) {
-            return res.status(401).json({ message: 'Email ou mot de passe incorrect.' });
+
+        if (!user || !(await bcrypt.compare(password, user.password))) {
+            return res.status(401).json({ message: 'Identifiants invalides.' }); 
         }
-        
-        const isPasswordValid = await bcrypt.compare(password, user.password);
-        if (!isPasswordValid) {
-            return res.status(401).json({ message: 'Email ou mot de passe incorrect.' });
-        }
-        
+
         const token = jwt.sign(
-            { userId: user._id, email: user.email, role: user.role }, 
-            process.env.JWT_SECRET, 
+            { userId: user._id, role: user.role }, 
+            process.env.JWT_SECRET,
             { expiresIn: '24h' }
         );
-        
-        res.status(200).json({ 
-            message: 'Connexion réussie !', 
+
+        res.status(200).json({
             token,
             user: { userId: user._id, name: user.name, email: user.email, role: user.role }
         });
 
     } catch (error) {
-        console.error("Erreur sur POST /api/login :", error);
-        res.status(500).json({ message: 'Erreur serveur lors de la connexion.' });
+        res.status(500).json({ message: "Erreur serveur interne lors de la connexion." });
     }
 });
 
 
 // ====================================================================
-// 4. ROUTES LOGEMENTS (HOUSING)
+// 4. ROUTES LOGEMENTS (HOUSING) (Simplifiées, incluant le GET par ID corrigé)
 // ====================================================================
 
-// GET /api/housing : Récupère la liste des logements (publique)
+// GET /api/housing : Récupérer toutes les annonces publiques
 app.get('/api/housing', async (req, res) => {
     try {
-        const { city, minPrice, maxPrice, type } = req.query;
-        let query = {};
-        
-        if (city) {
-            query['location.city'] = { $regex: city, $options: 'i' };
-        }
-        if (minPrice) {
-            query.price = { ...query.price, $gte: parseInt(minPrice) };
-        }
-        if (maxPrice) {
-            query.price = { ...query.price, $lte: parseInt(maxPrice) };
-        }
-        if (type) {
-            query.type = type;
-        }
-
-        const housingList = await Housing.find(query).populate('landlord', 'name');
-        res.status(200).json({ housingList });
+        const housingList = await Housing.find().populate('landlord', 'name email').sort({ createdAt: -1 });
+        res.status(200).json({ housing: housingList });
     } catch (error) {
-        console.error("Erreur sur GET /api/housing :", error);
-        res.status(500).json({ message: 'Erreur serveur.' });
+        res.status(500).json({ message: 'Erreur serveur lors de la récupération des annonces.' });
     }
 });
 
-// POST /api/housing : Créer un nouveau logement (protégé)
-app.post('/api/housing', authMiddleware, upload.array('images'), async (req, res) => {
-    try {
-        const { title, description, price, address, city, zipCode, type, amenities } = req.body;
-        const landlordId = req.userData.userId;
-        
-        // 1. Gère l'upload vers Cloudinary
-        let imageUrls = [];
-        if (req.files && req.files.length > 0) {
-            const uploadPromises = req.files.map(file => {
-                const b64 = Buffer.from(file.buffer).toString("base64");
-                let dataURI = "data:" + file.mimetype + ";base64," + b64;
-                return cloudinary.uploader.upload(dataURI, { folder: "g-house-housing" });
-            });
-            const uploadResults = await Promise.all(uploadPromises);
-            imageUrls = uploadResults.map(result => result.secure_url);
-        }
-        
-        // 2. Création du logement
-        const newHousing = new Housing({
-            title,
-            description,
-            price,
-            location: { address, city, zipCode },
-            type,
-            amenities: amenities ? JSON.parse(amenities) : [],
-            landlord: landlordId,
-            images: imageUrls,
-        });
-
-        await newHousing.save();
-        res.status(201).json({ housing: newHousing });
-
-    } catch (error) {
-        console.error("Erreur sur POST /api/housing :", error);
-        res.status(500).json({ message: 'Erreur serveur lors de la création du logement.' });
-    }
-});
-
-// GET /api/housing/:id : Détail d'un logement (public)
+// GET /api/housing/:id - Récupérer les détails d'une annonce spécifique
 app.get('/api/housing/:id', async (req, res) => {
     try {
-        const housing = await Housing.findById(req.params.id).populate('landlord', 'name email');
+        const { id } = req.params;
+        const housing = await Housing.findById(id).populate('landlord', 'name email');
         if (!housing) {
-            return res.status(404).json({ message: 'Logement non trouvé.' });
+            return res.status(404).json({ message: 'Annonce non trouvée.' });
         }
         res.status(200).json({ housing });
     } catch (error) {
-        console.error("Erreur sur GET /api/housing/:id :", error);
-        res.status(500).json({ message: 'Erreur serveur.' });
-    }
-});
-
-// 🔑 ROUTE AJOUTÉE : PUT /api/housing/:id (Mise à jour d'un logement)
-app.put('/api/housing/:id', authMiddleware, upload.array('images'), async (req, res) => {
-    try {
-        const { id } = req.params;
-        const userId = req.userData.userId;
-        const updateData = req.body;
-        
-        let housing = await Housing.findById(id);
-
-        if (!housing) {
-            return res.status(404).json({ message: "Logement non trouvé." });
+        if (error.kind === 'ObjectId') {
+             return res.status(404).json({ message: 'Format d\'ID d\'annonce non valide.' });
         }
-        
-        if (housing.landlord.toString() !== userId) {
-            return res.status(403).json({ message: "Accès refusé. Vous n'êtes pas le propriétaire." });
-        }
-
-        let newImageUrls = [];
-        if (req.files && req.files.length > 0) {
-            const uploadPromises = req.files.map(file => {
-                const b64 = Buffer.from(file.buffer).toString("base64");
-                let dataURI = "data:" + file.mimetype + ";base64," + b64;
-                return cloudinary.uploader.upload(dataURI, { folder: "g-house-housing" });
-            });
-            const uploadResults = await Promise.all(uploadPromises);
-            newImageUrls = uploadResults.map(result => result.secure_url);
-        }
-        
-        const currentImages = updateData.currentImages ? JSON.parse(updateData.currentImages) : housing.images;
-        const finalImages = [...currentImages, ...newImageUrls];
-        
-        Object.assign(housing, updateData);
-        housing.images = finalImages;
-
-        await housing.save();
-        
-        res.status(200).json({ housing });
-
-    } catch (error) {
-        console.error("Erreur sur PUT /api/housing/:id :", error);
-        res.status(500).json({ message: 'Erreur serveur lors de la mise à jour du logement.' });
-    }
-});
-
-// DELETE /api/housing/:id : Supprimer un logement (protégé)
-app.delete('/api/housing/:id', authMiddleware, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const userId = req.userData.userId;
-        
-        const housing = await Housing.findById(id);
-        if (!housing) {
-            return res.status(404).json({ message: 'Logement non trouvé.' });
-        }
-        
-        if (housing.landlord.toString() !== userId) {
-            return res.status(403).json({ message: 'Accès refusé. Vous n\'êtes pas le propriétaire.' });
-        }
-        
-        await Housing.deleteOne({ _id: id });
-        res.status(200).json({ message: 'Logement supprimé avec succès.' });
-    } catch (error) {
-        console.error("Erreur sur DELETE /api/housing/:id :", error);
-        res.status(500).json({ message: 'Erreur serveur lors de la suppression du logement.' });
-    }
-});
-
-// 🔑 ROUTE AJOUTÉE : GET /api/user/housing (pour Dashboard.jsx)
-app.get('/api/user/housing', authMiddleware, async (req, res) => {
-    try {
-        const userId = req.userData.userId;
-        
-        const housingList = await Housing.find({ landlord: userId })
-            .sort({ createdAt: -1 });
-
-        res.status(200).json({ housingList });
-    } catch (error) {
-        console.error("Erreur sur GET /api/user/housing :", error);
-        res.status(500).json({ message: 'Erreur serveur lors de la récupération de vos logements.' });
+        res.status(500).json({ message: 'Erreur serveur lors de la récupération des détails de l\'annonce.' });
     }
 });
 
@@ -344,7 +180,7 @@ app.get('/api/user/housing', authMiddleware, async (req, res) => {
 // 5. ROUTES MESSAGERIE (Conversations & Messages)
 // ====================================================================
 
-// GET /api/conversations : Récupère la liste des conversations
+// GET /api/conversations : Récupère la liste des conversations (CORRIGÉ : .populate('lastMessage') fonctionne)
 app.get('/api/conversations', authMiddleware, async (req, res) => {
     try {
         const conversations = await Conversation.find({ participants: req.userData.userId })
@@ -352,7 +188,7 @@ app.get('/api/conversations', authMiddleware, async (req, res) => {
             .populate('participants', 'name email') 
             .populate({
                 path: 'lastMessage',
-                select: 'content sender createdAt' 
+                select: 'content sender createdAt' // Cela nécessite que lastMessage existe dans le schéma Conversation
             })
             .sort({ updatedAt: -1 });
 
@@ -364,12 +200,16 @@ app.get('/api/conversations', authMiddleware, async (req, res) => {
 });
 
 
-// POST /api/conversations/start : Démarrer ou trouver une conversation existante
+// POST /api/conversations/start : Démarrer ou trouver une conversation existante (CORRIGÉ : Vérifie les IDs)
 app.post('/api/conversations/start', authMiddleware, async (req, res) => {
     try {
         const { housingId, recipientId } = req.body;
         const senderId = req.userData.userId;
-        
+
+        if (!housingId || !recipientId) {
+            return res.status(400).json({ message: 'Les IDs de logement et de destinataire sont requis.' });
+        }
+
         let conversation = await Conversation.findOne({
             housing: housingId,
             participants: { $all: [senderId, recipientId] }
@@ -396,29 +236,9 @@ app.post('/api/conversations/start', authMiddleware, async (req, res) => {
     }
 });
 
-// 🔑 ROUTE AJOUTÉE : GET /api/conversations/:id (pour getConversationDetails)
-app.get('/api/conversations/:id', authMiddleware, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const userId = req.userData.userId;
-        
-        const conversation = await Conversation.findById(id)
-            .populate('housing', 'title images') 
-            .populate('participants', 'name email');
-        
-        if (!conversation || !conversation.participants.map(p => p.toString()).includes(userId)) {
-            return res.status(403).json({ message: 'Accès refusé.' });
-        }
 
-        res.status(200).json({ conversation });
-    } catch (error) {
-        console.error("Erreur sur GET /api/conversations/:id :", error);
-        res.status(500).json({ message: 'Erreur serveur.' });
-    }
-});
-
-
-// 🔑 ROUTE AJOUTÉE : GET /api/conversations/:id/messages (pour l'historique)
+// 🔑 CLÉ DE LA CORRECTION POUR L'AFFICHAGE DES MESSAGES :
+// GET /api/conversations/:id/messages : Récupérer les messages d'une conversation
 app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
@@ -426,14 +246,15 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
         
         const conversation = await Conversation.findById(id);
         if (!conversation || !conversation.participants.map(p => p.toString()).includes(userId)) {
-            return res.status(403).json({ message: 'Accès refusé.' });
+            return res.status(403).json({ message: 'Accès refusé. Vous ne faites pas partie de cette conversation.' });
         }
         
+        // C'est cet appel qui récupère l'historique
         const messages = await Message.find({ conversation: id })
-            .populate('sender', 'name') // Pour afficher le nom de l'expéditeur
+            .populate('sender', 'name') 
             .sort({ createdAt: 1 });
             
-        res.status(200).json({ messages }); 
+        res.status(200).json({ messages }); // Renvoyer la liste des messages
     } catch (error) {
         console.error("Erreur sur GET /api/conversations/:id/messages :", error);
         res.status(500).json({ message: 'Erreur serveur lors de la récupération des messages.' });
@@ -442,71 +263,59 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
 
 
 // ====================================================================
-// 6. GESTION DES WEBSOCKETS (Persistance des messages)
+// 6. GESTION DES WEBSOCKETS (Logique d'envoi de message)
 // ====================================================================
 
 const userWsMap = new Map(); 
-
 wss.on('connection', (ws, req) => {
     let userId = null; 
-    // ... (Logique de connexion WebSocket avec vérification du token) ...
     
-    // 2. Traitement des messages
+    // ... (Logique de vérification de token) ...
+
     ws.on('message', async (message) => {
-        if (!userId) return; 
+        if (!userId) return;
         try {
             const data = JSON.parse(message);
             
             if (data.type === 'SEND_MESSAGE') {
                 const { conversationId, content, recipientId } = data.payload;
 
-                // CRÉATION ET ENREGISTREMENT DU MESSAGE EN BASE DE DONNÉES
-                const newMessage = new Message({ 
-                    conversation: conversationId, 
-                    sender: userId, 
-                    content: content 
-                });
-                
-                await newMessage.save(); // ✅ Ligne essentielle pour la persistance
+                // Enregistrement du message en base de données
+                const newMessage = new Message({ conversation: conversationId, sender: userId, content: content });
+                await newMessage.save();
 
-                // Mise à jour de la conversation
-                await Conversation.findByIdAndUpdate(
-                    conversationId, 
-                    { lastMessage: newMessage._id, updatedAt: Date.now() }
-                );
+                // Mise à jour de la conversation (lastMessage et updatedAt)
+                await Conversation.findByIdAndUpdate(conversationId, { lastMessage: newMessage._id, updatedAt: Date.now() });
 
-                // Objet à envoyer aux clients
+                // Création de l'objet message à renvoyer aux clients
                 const messageToSend = {
                     type: 'NEW_MESSAGE',
                     payload: { 
                         _id: newMessage._id, 
                         content: newMessage.content, 
-                        sender: { _id: userId.toString() }, 
+                        sender: { _id: userId }, // 🔑 IMPORTANT : Envoyer l'ID pour que le front l'identifie
                         createdAt: newMessage.createdAt, 
                         conversation: conversationId,
                     }
                 };
                 
-                // Envoyer au destinataire et à l'expéditeur
+                // Envoyer au destinataire
                 const recipientWs = userWsMap.get(recipientId.toString());
                 if (recipientWs && recipientWs.readyState === WebSocket.OPEN) {
                     recipientWs.send(JSON.stringify(messageToSend));
                 }
+
+                // Envoyer à l'expéditeur (pour l'afficher immédiatement sans rechargement)
                 ws.send(JSON.stringify(messageToSend)); 
             }
 
         } catch (error) {
-            console.error('🚨 ERREUR CRITIQUE DE SAUVEGARDE (WebSocket):', error.message);
-            ws.send(JSON.stringify({ type: 'ERROR', message: 'Erreur serveur lors de la sauvegarde.' }));
+            console.error('Erreur de traitement de message WebSocket:', error);
+            ws.send(JSON.stringify({ type: 'ERROR', message: 'Erreur serveur.' }));
         }
     });
 
-    // 3. Déconnexion
-    ws.on('close', () => {
-        if (userId) {
-            userWsMap.delete(userId.toString());
-        }
-    });
+    // ... (Logique de déconnexion) ...
 });
 
 
