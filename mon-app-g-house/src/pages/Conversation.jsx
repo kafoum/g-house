@@ -1,19 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-// Assurez-vous d'avoir une fonction getConversationDetails dans api/api.js, si elle n'existe pas, elle sera nécessaire.
 import { getMessages, getConversationDetails } from '../api/api'; 
-import { jwtDecode } from 'jwt-decode'; // Utile pour décoder le token si nécessaire, bien que useAuth doive le faire
+// Note : jwtDecode est optionnel ici car le token est directement passé à l'URL.
+// import { jwtDecode } from 'jwt-decode'; 
 
-// Configuration de l'URL WebSocket
+
+// ====================================================================
+// CONFIGURATION DE L'URL WEBSOCKET
+// ====================================================================
+// Récupère l'URL de base de l'API REST
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://g-house-api.onrender.com/api';
+
 // Convertit l'URL REST (https://...) en URL WebSocket sécurisée (wss://...)
-const WS_URL = API_BASE_URL.replace(/^https?:\/\//, 'wss://').replace(/\/api$/, '');
+// et retire le suffixe '/api' si nécessaire.
+const WS_URL = API_BASE_URL
+    .replace(/^https?:\/\//, 'wss://') // Change http:// ou https:// en ws:// ou wss://
+    .replace(/\/api$/, '');              // Supprime le '/api' final
+
 
 const Conversation = () => {
     const { id: conversationId } = useParams();
     const navigate = useNavigate();
-    const { user } = useAuth(); // Utilisateur connecté
+    const { user } = useAuth(); // Utilisateur connecté (contient .userId)
     
     // États
     const [conversation, setConversation] = useState(null); 
@@ -21,209 +30,235 @@ const Conversation = () => {
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [isWebSocketOpen, setIsWebSocketOpen] = useState(false); // État de la connexion WS
     
     // Références pour le WebSocket et le défilement
     const ws = useRef(null); 
     const messagesEndRef = useRef(null); 
 
-    // Données dérivées (Calculées à chaque rendu)
-    const otherParticipant = conversation?.participants.find(p => p._id !== user?.userId); 
-    const recipientId = otherParticipant?._id;
-    const isWebSocketOpen = ws.current && ws.current.readyState === WebSocket.OPEN;
+    // Données dérivées (l'ID de l'autre participant pour l'affichage)
+    const otherParticipant = conversation?.participants.find(p => p._id !== user?.userId);
 
-    // Fonction de défilement vers le bas
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
+    // ====================================================================
+    // 1. CHARGEMENT INITIAL DES DONNÉES (REST)
+    // ====================================================================
 
-    // --------------------------------------------------------------------------
-    // 1. GESTION DE LA CONNEXION ET RÉCUPÉRATION DE L'HISTORIQUE (useEffect principal)
-    // --------------------------------------------------------------------------
     useEffect(() => {
-        if (!user) {
-            navigate('/login');
+        if (!conversationId || !user) {
+            setLoading(false);
+            setError("ID de conversation ou informations utilisateur manquantes.");
             return;
         }
 
-        const token = localStorage.getItem('token');
-        if (!token) {
-            setError("Token d'authentification manquant.");
-            setLoading(false);
-            return;
-        }
-        
-        // --- A. Récupération des données (Détails et Historique) ---
         const fetchData = async () => {
             setLoading(true);
             try {
-                // 1. Récupération de l'historique des messages
-                const messagesResponse = await getMessages(conversationId); 
-                // ✅ FIX CRITIQUE : Utilise response.data.messages pour le tableau des messages
-                setMessages(messagesResponse.data.messages || []); 
+                // Chargement des détails de la conversation
+                const convResponse = await getConversationDetails(conversationId);
+                setConversation(convResponse.data.conversation);
 
-                // 2. Récupération des détails de la conversation
-                // Cela est essentiel pour identifier l'autre participant (recipientId)
-                const convDetailsResponse = await getConversationDetails(conversationId);
-                setConversation(convDetailsResponse.data.conversation || convDetailsResponse.data); 
+                // Chargement de l'historique des messages
+                const msgResponse = await getMessages(conversationId);
+                setMessages(msgResponse.data.messages || []);
                 
             } catch (err) {
-                console.error("Erreur de chargement de la conversation:", err);
-                // Gérer spécifiquement le 404/403 si l'utilisateur n'a pas accès
-                setError("Impossible de charger la conversation. Accès refusé ou conversation inexistante.");
+                setError('Impossible de charger la conversation ou les messages.');
+                console.error("Erreur API lors du chargement de la conversation:", err);
             } finally {
                 setLoading(false);
             }
         };
+
         fetchData();
+    }, [conversationId, user, navigate]);
 
-        // --- B. Initialisation du WebSocket ---
-        const websocketUrl = `${WS_URL}?token=${token}`;
-        ws.current = new WebSocket(websocketUrl);
 
+    // ====================================================================
+    // 2. GESTION DE LA CONNEXION WEBSOCKET (REAL-TIME)
+    // ====================================================================
+
+    useEffect(() => {
+        if (!user) return; 
+
+        // 🔑 Récupération du token JWT pour l'authentification WebSocket
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setError("Token d'authentification manquant. Veuillez vous reconnecter.");
+            return;
+        }
+
+        // 🔑 Connexion au WebSocket avec le token dans la query string
+        const connectionUrl = `${WS_URL}?token=${token}`;
+        ws.current = new WebSocket(connectionUrl);
+        
+        // --- Événements WebSocket ---
+        
         ws.current.onopen = () => {
-            console.log(`[WS] Connecté pour la conversation: ${conversationId}`);
+            console.log('WebSocket Connection Opened:', connectionUrl);
+            setIsWebSocketOpen(true);
         };
-
-        ws.current.onerror = (err) => {
-            console.error("[WS] Erreur WebSocket:", err);
-            // On peut définir un état d'erreur pour indiquer que le chat temps réel est HS
-        };
-
-        // --- C. Gestion des messages entrants (via WebSocket) ---
+        
         ws.current.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
                 
+                // 🔑 Gérer la réception d'un nouveau message
                 if (data.type === 'NEW_MESSAGE' && data.payload.conversation === conversationId) {
-                    // ✅ FIX CRITIQUE : Ajoute le message au state, peu importe si on est l'expéditeur ou le destinataire
-                    setMessages(prevMessages => {
-                        // S'assurer que le message n'est pas déjà dans la liste (pour éviter les doublons si le backend renvoie à l'expéditeur et que le front écoute)
-                        if (prevMessages.some(msg => msg._id === data.payload._id)) {
-                             return prevMessages; // Message déjà présent, ignorer
-                        }
-                        return [...prevMessages, data.payload];
-                    });
+                    console.log("Nouveau message reçu:", data.payload);
+                    
+                    // Ajoute le nouveau message à la liste existante
+                    setMessages(prevMessages => [...prevMessages, data.payload]);
+                    
+                } else if (data.type === 'ERROR') {
+                    console.error("Erreur WS du serveur:", data.message);
+                    // Afficher une alerte ou un message d'erreur à l'utilisateur
                 }
             } catch (e) {
-                console.error("[WS] Erreur de parsing ou de gestion du message:", e);
+                console.error('Erreur de parsing JSON dans onmessage:', e);
             }
         };
 
-        // --- D. Nettoyage (Fermeture de la connexion à l'unload) ---
-        return () => {
-            if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-                ws.current.close();
-                console.log("[WS] Déconnecté.");
-            }
+        ws.current.onerror = (error) => {
+            console.error('WebSocket Error:', error);
+            // Afficher une alerte ou un message d'erreur plus visible
+        };
+
+        ws.current.onclose = (event) => {
+            console.log('WebSocket Connection Closed:', event.code, event.reason);
+            setIsWebSocketOpen(false);
         };
         
-    }, [conversationId, user, navigate]); // Dépendances essentielles
+        // 🔑 Fonction de nettoyage : Ferme la connexion WebSocket lors du démontage du composant
+        return () => {
+            if (ws.current) {
+                ws.current.close();
+                ws.current = null;
+                setIsWebSocketOpen(false);
+            }
+        };
+    }, [user, conversationId]); // Se reconnecte si l'utilisateur ou la conversation change
 
-    // --------------------------------------------------------------------------
-    // 2. SCROLL AUTOMATIQUE (Déclenché à chaque nouvel ajout de message)
-    // --------------------------------------------------------------------------
+
+    // ====================================================================
+    // 3. GESTION DU DÉFILEMENT AUTOMATIQUE
+    // ====================================================================
+
+    // Se déclenche à chaque fois que la liste des messages change (nouveau message)
     useEffect(() => {
-        scrollToBottom();
-    }, [messages]);
+        // Défile vers le bas de la liste de messages
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [messages]); 
 
 
-    // --------------------------------------------------------------------------
-    // 3. LOGIQUE D'ENVOI DU MESSAGE
-    // --------------------------------------------------------------------------
+    // ====================================================================
+    // 4. GESTION DE L'ENVOI DE MESSAGE (WebSocket)
+    // ====================================================================
+
     const handleSendMessage = (e) => {
         e.preventDefault();
-        
-        if (!newMessage.trim() || !isWebSocketOpen || !recipientId) {
-            console.warn("Impossible d'envoyer: message vide, WS non ouvert ou destinataire inconnu.");
+        const content = newMessage.trim();
+
+        if (!content || !ws.current || ws.current.readyState !== WebSocket.OPEN) {
             return;
         }
-        
-        const messagePayload = {
+
+        // 🔑 Structure du message à envoyer au serveur via WebSocket
+        const messageToSend = {
             type: 'SEND_MESSAGE',
             payload: {
-                conversationId: conversationId,
-                content: newMessage.trim(),
-                recipientId: recipientId, // ID de l'autre participant (le destinataire)
+                conversationId,
+                content: content,
             }
         };
-        
-        // ✅ Envoi via WebSocket au backend (qui se charge de la sauvegarde et du renvoi)
-        ws.current.send(JSON.stringify(messagePayload));
-        setNewMessage('');
+
+        try {
+            // Envoi de la donnée JSON
+            ws.current.send(JSON.stringify(messageToSend));
+            // Efface l'input, l'affichage se fera via l'écho du serveur dans onmessage
+            setNewMessage('');
+        } catch (error) {
+            console.error('Erreur lors de l\'envoi via WS:', error);
+            setError('Impossible d\'envoyer le message. Veuillez réessayer.');
+        }
     };
 
-    // --------------------------------------------------------------------------
-    // 4. RENDU DU COMPOSANT
-    // --------------------------------------------------------------------------
+
+    // ====================================================================
+    // 5. RENDU DU COMPOSANT
+    // ====================================================================
 
     if (loading) {
-        return <p className="text-center mt-10">Chargement de la conversation...</p>;
+        return <div className="p-4 text-center">Chargement de la conversation...</div>;
     }
 
     if (error) {
-        return <p className="text-center mt-10 text-red-600">Erreur : {error}</p>;
+        return <div className="p-4 text-center text-red-500">{error}</div>;
     }
-    
-    const pageTitle = otherParticipant 
-        ? `Chat avec ${otherParticipant.name}` 
-        : conversation?.housing?.title 
-            ? `Conversation sur ${conversation.housing.title}`
-            : 'Conversation';
 
+    if (!conversation) {
+        return <div className="p-4 text-center">Conversation introuvable.</div>;
+    }
 
     return (
-        <div className="container mx-auto p-4 max-w-2xl h-[80vh] flex flex-col">
+        <div className="flex flex-col h-[80vh] max-w-4xl mx-auto my-4 bg-gray-50 border rounded-xl shadow-lg">
             
-            <h2 className="text-2xl font-bold mb-4 text-gray-800 text-center">{pageTitle}</h2>
-            
-            {/* Indication de l'état du WebSocket */}
-            {!isWebSocketOpen && (
-                 <div className="text-center text-sm text-red-500 mb-2 p-1 bg-red-100 rounded">
-                     Connexion au chat en temps réel (WebSocket) perdue ou en cours...
-                 </div>
-            )}
+            {/* Entête de la Conversation */}
+            <div className="p-4 border-b bg-white rounded-t-xl">
+                <h2 className="text-xl font-bold text-gray-800">
+                    Chat avec {otherParticipant ? otherParticipant.name : 'Utilisateur inconnu'}
+                </h2>
+                <p className="text-sm text-gray-500">
+                    Logement : {conversation.housing?.title || 'Non spécifié'}
+                </p>
+                <span className={`inline-block w-3 h-3 rounded-full ml-2 ${isWebSocketOpen ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                <span className="text-xs text-gray-500 ml-1">
+                    {isWebSocketOpen ? 'Connecté (temps réel)' : 'Déconnecté (reconnexion automatique en cours...)'}
+                </span>
+            </div>
 
-            {/* Zone des messages (scrollable) */}
-            <div className="flex-1 overflow-y-auto p-4 bg-gray-50 rounded-lg shadow-inner mb-4">
-                
+            {/* Corps des Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.length === 0 ? (
-                    <p className="text-center text-gray-500 mt-10">Démarrez la conversation !</p>
+                    <p className="text-center text-gray-500 italic">Démarrez la conversation !</p>
                 ) : (
-                    messages.map((msg, index) => (
+                    messages.map((msg) => (
+                        // Détermine si le message est envoyé ou reçu
                         <div 
-                            key={msg._id || index} // Utiliser _id s'il est présent
-                            className={`flex ${msg.sender?._id === user.userId ? 'justify-end' : 'justify-start'} mb-3`}
+                            key={msg._id || msg.createdAt} // Utilise _id si disponible, sinon createdAt
+                            className={`flex ${msg.sender?._id === user.userId ? 'justify-end' : 'justify-start'}`}
                         >
-                            <div 
-                                className={`max-w-xs lg:max-w-md p-3 text-white rounded-xl 
-                                ${msg.sender?._id === user.userId 
-                                    ? 'bg-blue-600 rounded-br-none' 
-                                    : 'bg-gray-200 text-gray-800 rounded-tl-none'
-                                } shadow-md`}
-                            >
+                            <div className={`max-w-xs lg:max-w-md p-3 rounded-lg shadow-md ${
+                                msg.sender?._id === user.userId 
+                                    ? 'bg-blue-600 text-white rounded-br-none' 
+                                    : 'bg-white text-gray-800 rounded-tl-none border'
+                            }`}>
                                 <p className="text-sm">{msg.content}</p>
                                 <p className={`text-xs mt-1 ${msg.sender?._id === user.userId ? 'text-gray-200' : 'text-gray-500'} text-right`}>
+                                    {/* Affiche l'heure d'envoi */}
                                     {new Date(msg.createdAt).toLocaleTimeString()}
                                 </p>
                             </div>
                         </div>
                     ))
                 )}
+                {/* 🔑 Référence pour le défilement automatique */}
                 <div ref={messagesEndRef} />
             </div>
             
             {/* Formulaire d'envoi */}
-            <form onSubmit={handleSendMessage} className="flex p-2 bg-white border rounded-lg shadow">
+            <form onSubmit={handleSendMessage} className="flex p-4 bg-white border-t rounded-b-xl">
                 <input
                     type="text"
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder="Tapez votre message..."
-                    className="flex-1 border-none focus:ring-0 focus:outline-none p-2"
+                    className="flex-1 border-gray-300 border focus:ring-blue-500 focus:border-blue-500 p-3 rounded-l-md focus:outline-none"
+                    // Empêche d'écrire si le WS n'est pas ouvert ou si le chargement initial est en cours
+                    disabled={!isWebSocketOpen || loading} 
                 />
                 <button 
                     type="submit" 
-                    className="ml-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    className="ml-0 px-6 py-3 bg-blue-600 text-white rounded-r-md hover:bg-blue-700 transition disabled:opacity-50"
                     // Désactive le bouton si le message est vide OU si le WebSocket n'est pas ouvert
                     disabled={!newMessage.trim() || !isWebSocketOpen} 
                 >

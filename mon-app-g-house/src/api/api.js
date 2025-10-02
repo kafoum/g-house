@@ -124,6 +124,32 @@ export const getMessages = (conversationId) => {
 
 
 // ======================================================================
+// 8. FONCTIONS DOCUMENTS DE PROFIL (ProfileDoc)
+// ======================================================================
+
+// Télécharge un document de profil (utilise FormData pour les fichiers)
+export const uploadProfileDoc = (docType, file) => {
+    // Crée un objet FormData pour envoyer le fichier et le type
+    const formData = new FormData();
+    formData.append('docType', docType);
+    formData.append('document', file); // 'document' doit correspondre au nom du champ dans le middleware Multer du backend
+
+    // L'instance 'api' gère déjà l'intercepteur pour les FormData
+    return api.post('/profile-docs/upload', formData); 
+};
+
+// Récupère la liste des documents de profil de l'utilisateur connecté
+export const getMyProfileDocs = () => {
+    return api.get('/profile-docs/my-documents');
+};
+
+// Récupère les documents d'un locataire spécifique (pour le propriétaire)
+export const getTenantProfileDocs = (tenantId) => {
+    return api.get(`/profile-docs/tenant/${tenantId}`);
+};
+
+
+// ======================================================================
 // 7. EXPORT DE L'INSTANCE AXIOS PAR DÉFAUT
 // ======================================================================
 
