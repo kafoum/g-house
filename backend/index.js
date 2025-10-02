@@ -58,7 +58,8 @@ const server = http.createServer(app); // Création du serveur HTTP pour le WebS
 
 // Middleware (traitement des requêtes)
 app.use(cors({
-    origin: process.env.NODE_ENV === 'production' ? 'https://mon-app-g-house.vercel.app' : '*', // 🔑 Mettez votre domaine Vercel ici
+    // 🔑 CORRECTION CORS : Utilisez l'URL Vercel correcte que le navigateur envoie.
+    origin: process.env.NODE_ENV === 'production' ? 'https://g-house.vercel.app' : '*', 
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -69,8 +70,6 @@ app.use(express.json());
 // ----------------------------------------------------
 // DÉBUT DES ROUTES API
 // ----------------------------------------------------
-
-// ------------------- AUTHENTIFICATION -------------------
 
 // Route d'inscription
 app.post('/api/register', async (req, res) => {
@@ -103,7 +102,7 @@ app.post('/api/register', async (req, res) => {
 // Route de connexion
 app.post('/api/login', async (req, res) => {
     try {
-        // 🔑 CORRECTION APPLIQUÉE : On déstructure explicitement l'email et le mot de passe
+        // CORRECTION DE LA LOGIQUE DE CONNEXION (précédente)
         const { email, password } = req.body;
 
         if (!email || !password) {
@@ -140,9 +139,7 @@ app.post('/api/login', async (req, res) => {
         });
 
     } catch (error) {
-        // 🛑 L'erreur de CastError arrive ici si on ne destructure pas.
         console.error("Erreur de connexion:", error);
-        // Le message d'erreur du frontend "Erreur lors de la connexion. Vérifiez vos identifiants." sera affiché.
         res.status(500).json({ message: 'Erreur lors de la connexion.' });
     }
 });
