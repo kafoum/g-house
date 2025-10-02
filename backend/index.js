@@ -52,11 +52,11 @@ const Message = require('./models/Message');
 const app = express();
 const server = http.createServer(app); 
 const PORT = process.env.PORT || 10000;
-const DB_URI = process.env.MONGO_URI; 
+const DB_URI = process.env.MONGODB_URI; 
 
 // Middleware CORS
 app.use(cors({
-    origin: process.env.FRONTEND_URL || '*', // Remplacez par votre URL Vercel en prod
+    origin: process.env.VERCEL_FRONTEND_URL || 'https://g-house.vercel.app', // Remplacez par votre URL Vercel en prod
     credentials: true,
 }));
 
