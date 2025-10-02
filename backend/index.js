@@ -1,4 +1,4 @@
-// Fichier : backend/index.js (Version Complète & Stabilité Maximale)
+// Fichier : backend/index.js (Version Stable et Complète)
 
 // Charge les variables d'environnement depuis le fichier .env
 require('dotenv').config();
@@ -14,11 +14,11 @@ const bcrypt = require('bcryptjs');
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./swagger'); 
+const swaggerSpec = require('./swagger'); // Fichier de configuration Swagger
 const cors = require('cors'); 
+// Modules WebSocket
 const http = require('http');
 const WebSocket = require('ws');
-
 // INITIALISATION DE STRIPE
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
 
@@ -37,9 +37,10 @@ const upload = multer({ storage: storage });
 const User = require('./models/User');
 const Housing = require('./models/Housing');
 const Booking = require('./models/Booking');
-const Message = require('./models/Message'); // 🔑 CLÉ : Doit être importé
-const Conversation = require('./models/Conversation'); // 🔑 CLÉ : Doit être importé
-// ... autres modèles (ProfileDoc, Notification)
+const Message = require('./models/Message'); 
+const Conversation = require('./models/Conversation'); 
+const ProfileDoc = require('./models/ProfileDoc');
+const Notification = require('./models/Notification');
 
 // Initialisation de l'application Express et du serveur HTTP pour WebSocket
 const app = express();
@@ -63,21 +64,18 @@ const allowedOrigins = [
     'http://localhost:5173',       
     'http://localhost:3000',
 ];
-
 if (process.env.FRONTEND_URL) {
     const frontendUrl = process.env.FRONTEND_URL.replace(/\/$/, '');
     if (!allowedOrigins.includes(frontendUrl)) {
         allowedOrigins.push(frontendUrl);
     }
 }
-
 app.use(cors({
     origin: function (origin, callback) {
         if (!origin) return callback(null, true);
         if (allowedOrigins.includes(origin)) {
             return callback(null, true);
         }
-        console.warn(`CORS Error: Origin ${origin} not allowed.`);
         return callback(new Error('Not allowed by CORS'), false);
     },
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
@@ -89,10 +87,10 @@ app.use(express.json());
 
 
 // ====================================================================
-// 3. ROUTES D'AUTHENTIFICATION (Stables)
+// 3. ROUTES D'AUTHENTIFICATION
 // ====================================================================
 
-// POST /api/register (Logique inchangée)
+// POST /api/register
 app.post('/api/register', async (req, res) => {
     try {
         const { name, email, password, role } = req.body;
@@ -113,7 +111,7 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// POST /api/login (Stable)
+// POST /api/login
 app.post('/api/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -142,10 +140,56 @@ app.post('/api/login', async (req, res) => {
 
 
 // ====================================================================
-// 4. ROUTES LOGEMENTS & CONVERSATIONS (Clés pour l'historique)
+// 4. ROUTES LOGEMENTS (HOUSING)
 // ====================================================================
 
-// ... (Ajouter ici les routes Housing, Booking, etc.) ...
+// 🔑 CORRECTION 404 : Ajout de la route pour la liste des annonces
+app.get('/api/housing', async (req, res) => {
+    try {
+        const { city, price_min, price_max, type } = req.query;
+        let query = {};
+
+        // Application des filtres
+        if (city) query['location.city'] = new RegExp(city, 'i');
+        if (type) query.type = type;
+        if (price_min || price_max) {
+            query.price = {};
+            if (price_min) query.price.$gte = parseInt(price_min);
+            if (price_max) query.price.$lte = parseInt(price_max);
+        }
+
+        const housings = await Housing.find(query)
+            .populate('landlord', 'name email')
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({ housings });
+    } catch (error) {
+        console.error("Erreur sur GET /api/housing :", error);
+        res.status(500).json({ message: 'Erreur serveur lors de la récupération des annonces.' });
+    }
+});
+
+
+// GET /api/housing/:id 
+app.get('/api/housing/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const housing = await Housing.findById(id).populate('landlord', 'name email');
+        if (!housing) {
+            return res.status(404).json({ message: 'Annonce non trouvée.' });
+        }
+        res.status(200).json({ housing });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur serveur.' });
+    }
+});
+
+// ... (Ajoutez ici vos autres routes Housing : POST, PUT, DELETE) ...
+
+
+// ====================================================================
+// 5. ROUTES MESSAGERIE (Conversations & Messages)
+// ====================================================================
 
 // GET /api/conversations : Récupère la liste des conversations
 app.get('/api/conversations', authMiddleware, async (req, res) => {
@@ -167,6 +211,39 @@ app.get('/api/conversations', authMiddleware, async (req, res) => {
 });
 
 
+// POST /api/conversations/start : Démarrer ou trouver une conversation existante
+app.post('/api/conversations/start', authMiddleware, async (req, res) => {
+    try {
+        const { housingId, recipientId } = req.body;
+        const senderId = req.userData.userId;
+        
+        let conversation = await Conversation.findOne({
+            housing: housingId,
+            participants: { $all: [senderId, recipientId] }
+        })
+        .populate('housing', 'title images')
+        .populate('participants', 'name email');
+        
+        if (!conversation) {
+            conversation = new Conversation({
+                housing: housingId,
+                participants: [senderId, recipientId],
+            });
+            await conversation.save();
+            
+            conversation = await Conversation.findById(conversation._id)
+                .populate('housing', 'title images')
+                .populate('participants', 'name email');
+        }
+
+        res.status(200).json({ conversation });
+    } catch (error) {
+        console.error("Erreur sur POST /api/conversations/start :", error);
+        res.status(500).json({ message: 'Erreur serveur lors du démarrage de la conversation.' });
+    }
+});
+
+
 // GET /api/conversations/:id/messages : Récupérer les messages d'une conversation (HISTORIQUE)
 app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
     try {
@@ -178,13 +255,9 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
             return res.status(403).json({ message: 'Accès refusé.' });
         }
         
-        // 🔑 CLÉ : Cette requête doit trouver les messages si le WebSocket les a enregistrés
         const messages = await Message.find({ conversation: id })
             .populate('sender', 'name') 
             .sort({ createdAt: 1 });
-            
-        // 🔍 LOG DE DÉBOGAGE : Vérifiez si ce log affiche '0' ou le bon nombre
-        console.log(`Historique récupéré pour la conversation ${id} : ${messages.length} messages.`);
             
         res.status(200).json({ messages }); 
     } catch (error) {
@@ -195,7 +268,7 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
 
 
 // ====================================================================
-// 5. GESTION DES WEBSOCKETS (Logique corrigée/débuggée)
+// 6. GESTION DES WEBSOCKETS (CLÉ DE LA CORRECTION MESSAGERIE)
 // ====================================================================
 
 const userWsMap = new Map(); 
@@ -203,14 +276,25 @@ const userWsMap = new Map();
 wss.on('connection', (ws, req) => {
     let userId = null; 
     
-    // ... (Logique de vérification de token et d'affectation de userId à partir du req.url) ...
+    // 1. Logique de vérification du token et d'affectation de userId
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const token = url.searchParams.get('token');
 
-    if (userId) {
-        userWsMap.set(userId.toString(), ws);
+    if (token) {
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            userId = decoded.userId;
+            userWsMap.set(userId.toString(), ws);
+        } catch (err) {
+            console.error("Token WebSocket invalide:", err.message);
+            ws.close(1008, 'Token invalide'); 
+            return;
+        }
     }
     
+    // 2. Traitement des messages
     ws.on('message', async (message) => {
-        if (!userId) return;
+        if (!userId) return; 
         try {
             const data = JSON.parse(message);
             
@@ -218,30 +302,27 @@ wss.on('connection', (ws, req) => {
                 const { conversationId, content, recipientId } = data.payload;
 
                 // Enregistrement du message en base de données
-                const newMessage = new Message({ conversation: conversationId, sender: userId, content: content });
-                
-                // 🔍 LOG DE DÉBOGAGE 1 : Affiche l'objet Mongoose avant la sauvegarde
-                console.log("Tentative d'enregistrement de message:", { 
-                    conversationId: newMessage.conversation.toString(), 
-                    sender: newMessage.sender.toString(), 
-                    content: newMessage.content.substring(0, 30) 
+                const newMessage = new Message({ 
+                    conversation: conversationId, 
+                    sender: userId, 
+                    content: content 
                 });
                 
-                await newMessage.save(); // 🔑 L'ÉCHEC SILENCIEUX est ici !
-                
-                // 🔍 LOG DE DÉBOGAGE 2 : Confirme la réussite de la sauvegarde
-                console.log("Message enregistré avec succès. ID:", newMessage._id);
+                await newMessage.save(); // 🔑 SAUVEGARDE CRITIQUE
 
-                // Mise à jour de la conversation (lastMessage et updatedAt)
-                await Conversation.findByIdAndUpdate(conversationId, { lastMessage: newMessage._id, updatedAt: Date.now() });
+                // Mise à jour de la conversation
+                await Conversation.findByIdAndUpdate(
+                    conversationId, 
+                    { lastMessage: newMessage._id, updatedAt: Date.now() }
+                );
 
-                // Création de l'objet message à renvoyer aux clients
+                // Objet à envoyer aux clients
                 const messageToSend = {
                     type: 'NEW_MESSAGE',
                     payload: { 
                         _id: newMessage._id, 
                         content: newMessage.content, 
-                        sender: { _id: userId.toString() }, // On s'assure que c'est une string
+                        sender: { _id: userId.toString() }, 
                         createdAt: newMessage.createdAt, 
                         conversation: conversationId,
                     }
@@ -252,19 +333,27 @@ wss.on('connection', (ws, req) => {
                 if (recipientWs && recipientWs.readyState === WebSocket.OPEN) {
                     recipientWs.send(JSON.stringify(messageToSend));
                 }
-
-                // Envoyer à l'expéditeur (pour l'afficher immédiatement)
+                // Envoyer à l'expéditeur (pour l'affichage immédiat)
                 ws.send(JSON.stringify(messageToSend)); 
+
             }
 
         } catch (error) {
-            // 🚨 LOG DE DÉBOGAGE 3 : C'est ici que vous verrez pourquoi la sauvegarde a échoué !
-            console.error('🚨 ERREUR CRITIQUE DE SAUVEGARDE (WebSocket):', error);
+            // 🚨 LOG DE DÉBOGAGE DÉTAILLÉ
+            console.error('🚨 ERREUR CRITIQUE DE SAUVEGARDE (WebSocket):', error.message);
+            if (error.name === 'ValidationError') {
+                console.error('Champs de validation Mongoose manquants:', Object.keys(error.errors));
+            }
             ws.send(JSON.stringify({ type: 'ERROR', message: 'Erreur serveur lors de la sauvegarde.' }));
         }
     });
 
-    // ... (Logique de déconnexion) ...
+    // 3. Déconnexion
+    ws.on('close', () => {
+        if (userId) {
+            userWsMap.delete(userId.toString());
+        }
+    });
 });
 
 
