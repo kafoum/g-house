@@ -52,11 +52,11 @@ const Message = require('./models/Message');
 const app = express();
 const server = http.createServer(app); 
 const PORT = process.env.PORT || 10000;
-const DB_URI = process.env.MONGODB_URI; 
+const DB_URI = process.env.MONGO_URI; 
 
 // Middleware CORS
 app.use(cors({
-    origin: process.env.VERCEL_FRONTEND_URL || 'g-house.vercel.app', // Remplacez par votre URL Vercel en prod
+    origin: process.env.FRONTEND_URL || '*', // Remplacez par votre URL Vercel en prod
     credentials: true,
 }));
 
@@ -225,14 +225,14 @@ app.post('/api/login', async (req, res) => {
 // 6. ROUTES LOGEMENTS (HOUSING)
 // ====================================================================
 
-// 🔑 Route de création de logement (CORRECTION MAJEURE)
+// Route de création de logement (Correction Landlord/Owner)
 app.post('/api/housing', authMiddleware, upload.array('images', 10), async (req, res) => {
     try {
         if (req.userData.userRole !== 'landlord') {
             return res.status(403).json({ message: 'Seul un propriétaire peut créer une annonce.' });
         }
 
-        // 🔑 CORRECTION: Récupérer et parser la chaîne JSON des données du formulaire
+        // Récupérer et parser la chaîne JSON des données du formulaire
         const { data } = req.body;
         if (!data) {
              return res.status(400).json({ message: 'Les données du logement sont manquantes dans la requête.' });
@@ -245,7 +245,8 @@ app.post('/api/housing', authMiddleware, upload.array('images', 10), async (req,
             return res.status(400).json({ message: 'Format des données invalide.' });
         }
         
-        housingData.owner = req.userData.userId; // Assigner le propriétaire
+        // 🔑 CORRECTION MAJEURE: Assigner l'ID à la propriété 'landlord'
+        housingData.landlord = req.userData.userId; 
 
         // Gérer l'upload des images
         if (req.files && req.files.length > 0) {
@@ -271,19 +272,19 @@ app.post('/api/housing', authMiddleware, upload.array('images', 10), async (req,
     }
 });
 
-// Route de modification de logement (doit aussi parser le JSON)
+// Route de modification de logement (Correction Landlord/Owner)
 app.put('/api/housing/:id', authMiddleware, upload.array('images', 10), async (req, res) => {
     try {
         const housingId = req.params.id;
         const userId = req.userData.userId;
 
-        // Vérifier si l'utilisateur est le propriétaire de l'annonce
-        let housing = await Housing.findOne({ _id: housingId, owner: userId });
+        // 🔑 CORRECTION: Vérifier si l'utilisateur est le propriétaire de l'annonce en utilisant 'landlord'
+        let housing = await Housing.findOne({ _id: housingId, landlord: userId });
         if (!housing) {
             return res.status(404).json({ message: 'Annonce non trouvée ou accès refusé.' });
         }
 
-        // 🔑 CORRECTION: Récupérer et parser la chaîne JSON des données du formulaire
+        // Récupérer et parser la chaîne JSON des données du formulaire
         const { data } = req.body;
         if (!data) {
              return res.status(400).json({ message: 'Les données du logement sont manquantes.' });
@@ -295,7 +296,7 @@ app.put('/api/housing/:id', authMiddleware, upload.array('images', 10), async (r
         } catch (e) {
             return res.status(400).json({ message: 'Format des données invalide.' });
         }
-
+        
         // Gérer l'upload des nouvelles images (remplace les anciennes si de nouvelles sont uploadées)
         if (req.files && req.files.length > 0) {
             const uploadedImageUrls = await uploadImagesToCloudinary(req.files); 
@@ -328,7 +329,7 @@ app.put('/api/housing/:id', authMiddleware, upload.array('images', 10), async (r
 });
 
 
-// Route pour obtenir les logements du propriétaire connecté
+// Route pour obtenir les logements du propriétaire connecté (Correction Landlord/Owner)
 app.get('/api/user/housing', authMiddleware, async (req, res) => {
     try {
         const userId = req.userData.userId;
@@ -338,7 +339,8 @@ app.get('/api/user/housing', authMiddleware, async (req, res) => {
             return res.status(403).json({ message: 'Seul un propriétaire peut accéder à cette ressource.' });
         }
 
-        const housing = await Housing.find({ owner: userId }).populate('owner', 'name email');
+        // 🔑 CORRECTION: Chercher par 'landlord' et peupler le champ 'landlord'
+        const housing = await Housing.find({ landlord: userId }).populate('landlord', 'name email');
         res.status(200).json({ housing });
     } catch (error) {
         console.error("Erreur sur GET /api/user/housing :", error);
@@ -346,11 +348,12 @@ app.get('/api/user/housing', authMiddleware, async (req, res) => {
     }
 });
 
-// Route pour obtenir les détails d'un logement
+// Route pour obtenir les détails d'un logement (Correction Landlord/Owner)
 app.get('/api/housing/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const housing = await Housing.findById(id).populate('owner', 'name email role');
+        // 🔑 CORRECTION: Peupler le champ 'landlord'
+        const housing = await Housing.findById(id).populate('landlord', 'name email role');
 
         if (!housing) {
             return res.status(404).json({ message: 'Annonce non trouvée.' });
@@ -365,8 +368,8 @@ app.get('/api/housing/:id', async (req, res) => {
 // Route pour lister tous les logements (pour la page d'accueil)
 app.get('/api/housing', async (req, res) => {
     try {
-        // Optionnel : implémenter la recherche et la pagination ici
-        const housing = await Housing.find({ status: 'active' }).populate('owner', 'name');
+        // Peupler le champ 'landlord' pour l'affichage du nom du propriétaire
+        const housing = await Housing.find({ status: 'active' }).populate('landlord', 'name');
         res.status(200).json({ housing });
     } catch (error) {
         console.error("Erreur sur GET /api/housing :", error);
@@ -374,14 +377,14 @@ app.get('/api/housing', async (req, res) => {
     }
 });
 
-// Route de suppression de logement
+// Route de suppression de logement (Correction Landlord/Owner)
 app.delete('/api/housing/:id', authMiddleware, async (req, res) => {
     try {
         const housingId = req.params.id;
         const userId = req.userData.userId;
 
-        // Chercher et supprimer le logement s'il appartient bien à l'utilisateur
-        const result = await Housing.findOneAndDelete({ _id: housingId, owner: userId });
+        // 🔑 CORRECTION: Chercher et supprimer le logement en utilisant 'landlord'
+        const result = await Housing.findOneAndDelete({ _id: housingId, landlord: userId });
 
         if (!result) {
             return res.status(404).json({ message: 'Annonce non trouvée ou accès refusé.' });
@@ -400,7 +403,7 @@ app.delete('/api/housing/:id', authMiddleware, async (req, res) => {
 // 7. ROUTES RÉSERVATIONS (BOOKINGS)
 // ====================================================================
 
-// Route pour créer une session de paiement Stripe
+// Route pour créer une session de paiement Stripe (Correction Landlord/Owner)
 app.post('/api/bookings/create-session', authMiddleware, async (req, res) => {
     const { housingId, startDate, endDate } = req.body;
     const tenantId = req.userData.userId;
@@ -427,7 +430,8 @@ app.post('/api/bookings/create-session', authMiddleware, async (req, res) => {
         const newBooking = new Booking({
             tenant: tenantId,
             housing: housingId,
-            landlord: housing.owner,
+            // 🔑 CORRECTION: Utiliser housing.landlord pour assigner l'ID du propriétaire
+            landlord: housing.landlord, 
             startDate: dateStart,
             endDate: dateEnd,
             totalPrice: totalPrice, // Le prix exact calculé par le serveur
@@ -690,7 +694,7 @@ wss.on('connection', (ws, req) => {
                     message: {
                         _id: newMessage._id,
                         content: newMessage.content,
-                        sender: { _id: userId, name: req.userData.name }, // L'info du sender est dans req.userData (mais ici on est dans WS)
+                        // Note: L'info du sender devra être récupérée du contexte côté client/WebSocket
                         conversation: conversationId,
                         createdAt: newMessage.createdAt,
                     }
