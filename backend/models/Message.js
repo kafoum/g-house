@@ -5,29 +5,27 @@ const messageSchema = new mongoose.Schema({
     conversation: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Conversation',
-        required: true
+        required: true,
     },
     // L'expéditeur du message
     sender: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
-        required: true
+        required: true,
     },
     // Le contenu du message
     content: {
         type: String,
-        required: true
+        required: true,
+        trim: true,
     },
-    // Indique si le message a été lu
+    // Optionnel: peut être utilisé pour marquer comme lu/non lu
     isRead: {
         type: Boolean,
-        default: false
+        default: false,
     },
-    // La date d'envoi du message
-    createdAt: {
-        type: Date,
-        default: Date.now
-    }
+}, {
+    timestamps: true // Ajoute createdAt (date d'envoi) et updatedAt
 });
 
 const Message = mongoose.model('Message', messageSchema);
