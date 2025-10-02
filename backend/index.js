@@ -43,7 +43,7 @@ const upload = multer({ storage: storage });
 
 
 // ====================================================================
-// IMPORTS DES MODÈLES MONGOOSE (Assurez-vous que ces fichiers existent)
+// IMPORTS DES MODÈLES MONGOOSE
 // ====================================================================
 const User = require('./models/User');
 const Housing = require('./models/Housing');
@@ -63,7 +63,7 @@ const PORT = process.env.PORT || 5000;
 // CONNEXION À LA BASE DE DONNÉES
 // ====================================================================
 
-// 🔑 CORRECTION : Utilisation de MONGODB_URI et retrait des options dépréciées
+// Utilisation de MONGODB_URI (corrigé) et retrait des options dépréciées
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('Connexion à MongoDB réussie !'))
     .catch(err => console.error('Erreur de connexion à MongoDB :', err));
@@ -87,7 +87,6 @@ app.post('/api/register', async (req, res) => {
     try {
         const { name, email, password, role } = req.body;
 
-        // Le middleware 'pre' dans User.js hache le mot de passe
         const user = await User.create({ name, email, password, role });
 
         res.status(201).json({ 
@@ -105,21 +104,22 @@ app.post('/api/register', async (req, res) => {
 });
 
 
-// 2. Route de connexion : POST /api/login (CORRECTION DE LA CASTERROR)
+// 2. Route de connexion : POST /api/login (CORRECTION ULTIME DE LA CASTERROR)
 app.post('/api/login', async (req, res) => {
     try {
-        // 🔑 CORRECTION : Renommer les variables pour éviter l'ambiguïté Mongoose
-        const { email: userEmail, password: userPassword } = req.body;
+        // Extraction directe des champs
+        const { email, password } = req.body;
 
         // 1. Trouver l'utilisateur par email
-        const user = await User.findOne({ email: userEmail }); 
+        // 🔑 CORRECTION : On force l'utilisation d'une structure { key: value } explicite
+        const user = await User.findOne({ email: email }); 
 
         if (!user) {
             return res.status(400).json({ message: 'Identifiants invalides.' }); 
         }
 
         // 2. Comparer le mot de passe haché
-        const isMatch = await bcrypt.compare(userPassword, user.password); 
+        const isMatch = await bcrypt.compare(password, user.password); 
 
         if (!isMatch) {
             return res.status(400).json({ message: 'Identifiants invalides.' }); 
@@ -151,14 +151,13 @@ app.post('/api/login', async (req, res) => {
 
 
 // ====================================================================
-// AUTRES ROUTES API (Ajoutez vos routes ici ou utilisez des routeurs)
+// AUTRES ROUTES API (Ajoutez vos routeurs ici)
 // ====================================================================
 
-// Exemple de route protégée (vous utiliserez sans doute 'app.use')
+// Exemple :
 // app.use('/api/housing', require('./routes/housing')); 
 // app.use('/api/bookings', require('./routes/booking')); 
-// app.use('/api/user', require('./routes/user')); 
-// ... etc.
+// ...
 
 
 // ====================================================================
@@ -217,7 +216,7 @@ wss.on('connection', (ws, req) => {
                     message: {
                         _id: newMessage._id,
                         content: newMessage.content,
-                        sender: { _id: userId, name: 'Moi' }, // Le nom peut être récupéré de l'utilisateur ou la conversation
+                        sender: { _id: userId, name: 'Moi' }, 
                         createdAt: newMessage.createdAt,
                         conversation: conversationId,
                     }
@@ -241,7 +240,7 @@ wss.on('connection', (ws, req) => {
 
     // 3. Déconnexion
     ws.on('close', () => {
-        userWsMap.delete(userId); // Supprimer l'utilisateur de la map
+        userWsMap.delete(userId); 
         console.log(`Utilisateur déconnecté via WebSocket: ${userId}`);
     });
 });
