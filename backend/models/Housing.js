@@ -1,3 +1,5 @@
+// Fichier : models/Housing.js
+
 const mongoose = require('mongoose');
 
 const housingSchema = new mongoose.Schema({
@@ -25,16 +27,21 @@ const housingSchema = new mongoose.Schema({
         required: true
     },
     amenities: {
-        type: [String], // Array de strings pour les équipements (ex: "Wi-Fi", "lave-linge")
+        type: [String], 
         default: []
     },
-    // Le lien vers le propriétaire de l'annonce
     landlord: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'User', // Fait référence au modèle 'User'
+        ref: 'User',
         required: true
     },
-    // Pour stocker les URLs des images
+    // 🔑 CORRECTION CLÉ : Ajout du champ status
+    status: {
+        type: String,
+        enum: ['active', 'inactive', 'archived'], // Options possibles pour le statut
+        default: 'active' // L'annonce est active par défaut
+    },
+    // Fin de la CORRECTION CLÉ
     images: {
         type: [String],
         default: []
