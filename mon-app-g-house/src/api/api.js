@@ -1,4 +1,4 @@
-// Fichier : frontend/src/api/api.js (Version Finale)
+// Fichier : frontend/src/api/api.js (Version Finale et Complète)
 
 import axios from 'axios';
 
@@ -27,6 +27,7 @@ api.interceptors.request.use(config => {
         config.headers.Authorization = `Bearer ${token}`; 
     }
 
+    // Gère le cas des uploads de fichiers (FormData)
     if (config.data instanceof FormData) {
         delete config.headers['Content-Type'];
     }
@@ -65,6 +66,7 @@ export const getHousingDetail = (id) => {
     return api.get(`/housing/${id}`);
 };
 
+// Aliases pour corriger les erreurs de compilation (ex: Dashboard.jsx, CreateHousing.jsx)
 export const getHousingDetails = (id) => {
     return getHousingDetail(id); 
 };
@@ -77,12 +79,7 @@ export const deleteHousing = (id) => {
     return api.delete(`/housing/${id}`);
 };
 
-/**
- * 🔑 CORRECTION VERCEL : Ajout de la fonction manquante.
- * Récupère tous les logements créés par l'utilisateur connecté.
- */
 export const getUserHousing = () => {
-    // Supposons que la route est /user/housing (protégée par authMiddleware)
     return api.get('/user/housing'); 
 };
 
