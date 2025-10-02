@@ -4,39 +4,46 @@
 require('dotenv').config();
 
 // ====================================================================
-// 1. IMPORTS DES MODULES ET INITIALISATION
+// 1. IMPORTS DES MODULES
 // ====================================================================
 const authMiddleware = require('./middleware/auth');
 const jwt = require('jsonwebtoken');
 const express = require('express');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs'); 
-const nodemailer = require('nodemailer'); // Pour les emails (confirmation, etc.)
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./swagger'); // Assurez-vous d'avoir ce fichier
+const swaggerSpec = require('./swagger'); 
 const cors = require('cors'); 
+const moment = require('moment');
 
 // Modules WebSocket
 const http = require('http');
 const WebSocket = require('ws');
 
+// ====================================================================
+// 2. INITIALISATION DES SERVICES EXTERNES
+// ====================================================================
+
 // INITIALISATION DE STRIPE
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
 
-// Configurez Cloudinary
+// Configuration Cloudinary
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Configurez Multer pour la gestion des fichiers en mémoire (buffer)
+// Configuration Multer pour les fichiers en mémoire (Buffer)
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-// Importe les modèles Mongoose (Assurez-vous qu'ils existent dans le dossier models)
+
+// ====================================================================
+// 3. IMPORTS DES MODÈLES MONGOOSE 
+// ====================================================================
 const User = require('./models/User');
 const Housing = require('./models/Housing');
 const Booking = require('./models/Booking');
@@ -45,14 +52,19 @@ const Notification = require('./models/Notification');
 const Conversation = require('./models/Conversation');
 const Message = require('./models/Message');
 
-
 // ====================================================================
-// 2. CONFIGURATION ET CONNEXION À LA BASE DE DONNÉES
+// 4. CONFIGURATION DE L'APPLICATION ET DE LA DB
 // ====================================================================
 const app = express();
-const server = http.createServer(app); 
-const PORT = process.env.PORT || 10000;
-const DB_URI = process.env.MONGODB_URI; 
+const PORT = process.env.PORT || 3000;
+
+// Connexion à MongoDB
+mongoose.connect(process.env.MONGODB_URI)
+    .then(() => console.log('Connexion à MongoDB réussie !'))
+    .catch((error) => console.error('Erreur de connexion à MongoDB :', error));
+
+// Création du serveur HTTP (nécessaire pour le WebSocket)
+const server = http.createServer(app);
 
 // Middleware CORS
 app.use(cors({
@@ -64,310 +76,118 @@ app.use(cors({
 // Note: Stripe webhook doit être AVANT body-parser (voir ci-dessous)
 
 
-// Connexion à MongoDB
-if (!DB_URI) {
-    console.error("FATAL ERROR: La variable d'environnement MONGO_URI n'est pas définie !");
-    process.exit(1); 
-}
+// Middleware Express pour parser le JSON et les données de formulaire
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-mongoose.connect(DB_URI)
-    .then(() => console.log('Connexion à MongoDB réussie !'))
-    .catch(err => console.error('Erreur de connexion à MongoDB :', err));
 
 
 // ====================================================================
-// 3. FONCTIONS UTILITAIRES CLOUDINARY
+// 5. FONCTIONS UTILITAIRES POUR STRIPE/BOOKING
 // ====================================================================
 
 /**
- * Uploade les fichiers Multer sur Cloudinary.
- * @param {Array<Express.Multer.File>} files - Tableau de fichiers Multer
- * @returns {Promise<Array<string>>} - Tableau des URLs sécurisées
+ * Calcule le prix total exact.
+ * @param {number} pricePerMonth - Le prix mensuel de l'annonce.
+ * @param {Date} startDate - Date de début de la réservation.
+ * @param {Date} endDate - Date de fin de la réservation.
+ * @returns {number} Le prix total calculé.
  */
-const uploadImagesToCloudinary = async (files) => {
-    if (!files || files.length === 0) return [];
-
-    const uploadPromises = files.map(file => {
-        const b64 = Buffer.from(file.buffer).toString("base64");
-        let dataURI = "data:" + file.mimetype + ";base64," + b64;
-        return cloudinary.uploader.upload(dataURI, {
-            folder: "g-house-housing-images", 
-            resource_type: "auto", 
-        }).then(result => result.secure_url); 
-    });
-
-    return Promise.all(uploadPromises);
-};
-
-
-// ====================================================================
-// 4. ROUTE WEBHOOK STRIPE (DOIT UTILISER LE RAW BODY AVANT app.use(express.json()))
-// ====================================================================
-
-app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-    const sig = req.headers['stripe-signature'];
-    let event;
-
-    try {
-        // Remplacez 'WH_SECRET' par la vraie clé secrète du webhook
-        event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-    } catch (err) {
-        console.error('Erreur de signature Webhook Stripe:', err.message);
-        return res.status(400).send(`Webhook Error: ${err.message}`);
+function calculateFinalPrice(pricePerMonth, startDate, endDate) {
+    const start = moment(startDate);
+    const end = moment(endDate);
+    
+    if (!start.isValid() || !end.isValid() || end.isSameOrBefore(start)) {
+        return 0;
     }
 
-    // Gérer l'événement de Stripe
-    if (event.type === 'checkout.session.completed') {
-        const session = event.data.object;
-        const { bookingId } = session.metadata;
+    // Calcul du nombre de jours exacts (exclusif du jour de fin)
+    const durationDays = end.diff(start, 'days');
+    
+    if (durationDays <= 0) return 0;
 
-        if (bookingId) {
-            try {
-                // Mettre à jour la réservation comme payée (status 'confirmed')
-                const updatedBooking = await Booking.findByIdAndUpdate(
-                    bookingId,
-                    { 
-                        status: 'confirmed', 
-                        paymentIntentId: session.payment_intent,
-                        totalPrice: session.amount_total / 100, // En centimes, donc diviser
-                        paymentDate: new Date()
-                    },
-                    { new: true }
-                );
-
-                if (updatedBooking) {
-                    console.log(`Réservation ${bookingId} confirmée et payée.`);
-                    
-                    // TODO: Envoyer une notification au propriétaire et au locataire
-                }
-            } catch (error) {
-                console.error('Erreur lors de la mise à jour de la réservation après paiement:', error);
-                return res.status(500).json({ received: true, error: "Database update failed" });
-            }
-        }
-    }
-
-    res.json({ received: true });
-});
-
-
-// Middleware pour parser les corps JSON (après le webhook)
-app.use(express.json()); 
-app.use(express.urlencoded({ extended: true })); 
+    // Prix journalier basé sur 30 jours (approximation standard)
+    const pricePerDay = pricePerMonth / 30.0;
+    
+    // Prix total arrondi à deux décimales
+    const totalPrice = (pricePerDay * durationDays);
+    
+    // Stripe travaille en centimes, on arrondit au centime supérieur ou inférieur
+    // Pour cet exemple, nous allons simplement arrondir pour éviter les erreurs de flottants
+    return Math.round(totalPrice * 100) / 100; 
+}
 
 
 // ====================================================================
-// 5. ROUTES AUTHENTIFICATION (USER)
+// 6. ROUTES AUTHENTIFICATION
 // ====================================================================
 
 // Route d'inscription
 app.post('/api/register', async (req, res) => {
-    const { name, email, password, role } = req.body;
     try {
+        const { name, email, password, role } = req.body;
+        
         const existingUser = await User.findOne({ email });
         if (existingUser) {
-            return res.status(409).json({ message: 'Cet email est déjà utilisé.' });
+            return res.status(400).json({ message: 'L\'utilisateur avec cet email existe déjà.' });
         }
-        
-        // Créer l'utilisateur (le middleware `pre('save')` s'occupe du hachage)
-        const newUser = new User({ name, email, password, role });
+
+        const newUser = new User({ name, email, password, role: role || 'tenant' });
         await newUser.save();
 
-        res.status(201).json({ message: 'Inscription réussie. Vous pouvez maintenant vous connecter.' });
+        res.status(201).json({ message: 'Inscription réussie ! Vous pouvez vous connecter.', user: { id: newUser._id, name: newUser.name, email: newUser.email, role: newUser.role } });
     } catch (error) {
-        console.error(error);
-        if (error.name === 'ValidationError') {
-            return res.status(400).json({ message: `Erreur de validation: ${Object.values(error.errors).map(val => val.message).join('. ')}` });
-        }
-        res.status(500).json({ message: 'Erreur serveur lors de l\'inscription.' });
+        console.error("Erreur sur /api/register :", error);
+        res.status(500).json({ message: 'Erreur serveur.' });
     }
 });
 
 // Route de connexion
 app.post('/api/login', async (req, res) => {
-    const { email, password } = req.body;
     try {
+        const { email, password } = req.body;
+
         const user = await User.findOne({ email });
         if (!user) {
             return res.status(401).json({ message: 'Identifiants invalides.' });
         }
 
-        // Comparer le mot de passe haché
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
             return res.status(401).json({ message: 'Identifiants invalides.' });
         }
 
-        // Créer le token JWT
+        // Création du token JWT
         const token = jwt.sign(
-            { userId: user._id, role: user.role }, // Payload corrigé
-            process.env.JWT_SECRET,
+            { userId: user._id, role: user.role }, 
+            process.env.JWT_SECRET, 
             { expiresIn: '24h' }
         );
 
         res.status(200).json({ 
             token, 
-            user: {
-                id: user._id, // Assurez-vous d'utiliser _id
-                name: user.name,
-                email: user.email,
-                role: user.role,
-            }
+            user: { 
+                id: user._id, 
+                name: user.name, 
+                email: user.email, 
+                role: user.role 
+            } 
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Erreur serveur lors de la connexion.' });
-    }
-});
-
-
-// ====================================================================
-// 6. ROUTES LOGEMENTS (HOUSING)
-// ====================================================================
-
-// Route de création de logement (Correction Landlord/Owner)
-app.post('/api/housing', authMiddleware, upload.array('images', 10), async (req, res) => {
-    try {
-        if (req.userData.userRole !== 'landlord') {
-            return res.status(403).json({ message: 'Seul un propriétaire peut créer une annonce.' });
-        }
-
-        // Récupérer et parser la chaîne JSON des données du formulaire
-        const { data } = req.body;
-        if (!data) {
-             return res.status(400).json({ message: 'Les données du logement sont manquantes dans la requête.' });
-        }
-        
-        let housingData;
-        try {
-            housingData = JSON.parse(data); // Contient l'objet location imbriqué
-        } catch (e) {
-            return res.status(400).json({ message: 'Format des données invalide.' });
-        }
-        
-        // 🔑 CORRECTION MAJEURE: Assigner l'ID à la propriété 'landlord'
-        housingData.landlord = req.userData.userId; 
-
-        // Gérer l'upload des images
-        if (req.files && req.files.length > 0) {
-            const uploadedImageUrls = await uploadImagesToCloudinary(req.files); 
-            housingData.images = uploadedImageUrls;
-        }
-
-        const newHousing = new Housing(housingData);
-        await newHousing.save();
-
-        res.status(201).json({ 
-            message: 'Annonce créée avec succès.', 
-            housing: newHousing 
-        });
-
-    } catch (error) {
-        console.error("Erreur sur POST /api/housing :", error);
-        if (error.name === 'ValidationError') {
-            const messages = Object.values(error.errors).map(val => val.message).join('. ');
-            return res.status(400).json({ message: `Erreur de validation: ${messages}` });
-        }
-        res.status(500).json({ message: 'Erreur serveur lors de la création de l\'annonce.' });
-    }
-});
-
-// Route de modification de logement (Correction Landlord/Owner)
-app.put('/api/housing/:id', authMiddleware, upload.array('images', 10), async (req, res) => {
-    try {
-        const housingId = req.params.id;
-        const userId = req.userData.userId;
-
-        // 🔑 CORRECTION: Vérifier si l'utilisateur est le propriétaire de l'annonce en utilisant 'landlord'
-        let housing = await Housing.findOne({ _id: housingId, landlord: userId });
-        if (!housing) {
-            return res.status(404).json({ message: 'Annonce non trouvée ou accès refusé.' });
-        }
-
-        // Récupérer et parser la chaîne JSON des données du formulaire
-        const { data } = req.body;
-        if (!data) {
-             return res.status(400).json({ message: 'Les données du logement sont manquantes.' });
-        }
-        
-        let housingData;
-        try {
-            housingData = JSON.parse(data); // Contient l'objet location imbriqué
-        } catch (e) {
-            return res.status(400).json({ message: 'Format des données invalide.' });
-        }
-        
-        // Gérer l'upload des nouvelles images (remplace les anciennes si de nouvelles sont uploadées)
-        if (req.files && req.files.length > 0) {
-            const uploadedImageUrls = await uploadImagesToCloudinary(req.files); 
-            housingData.images = uploadedImageUrls; // Remplacer le tableau d'images
-        } else if (!housingData.images || housingData.images.length === 0) {
-            // S'assurer que le champ images existe même s'il est vide
-            housingData.images = housing.images;
-        }
-
-        // Mettre à jour l'annonce
-        const updatedHousing = await Housing.findByIdAndUpdate(
-            housingId, 
-            { $set: housingData }, 
-            { new: true, runValidators: true } // runValidators: pour forcer la validation Mongoose
-        );
-
-        res.status(200).json({ 
-            message: 'Annonce mise à jour avec succès.', 
-            housing: updatedHousing 
-        });
-
-    } catch (error) {
-        console.error("Erreur sur PUT /api/housing/:id :", error);
-        if (error.name === 'ValidationError') {
-            const messages = Object.values(error.errors).map(val => val.message).join('. ');
-            return res.status(400).json({ message: `Erreur de validation: ${messages}` });
-        }
-        res.status(500).json({ message: 'Erreur serveur lors de la mise à jour de l\'annonce.' });
-    }
-});
-
-
-// Route pour obtenir les logements du propriétaire connecté (Correction Landlord/Owner)
-app.get('/api/user/housing', authMiddleware, async (req, res) => {
-    try {
-        const userId = req.userData.userId;
-        const userRole = req.userData.userRole;
-
-        if (userRole !== 'landlord') {
-            return res.status(403).json({ message: 'Seul un propriétaire peut accéder à cette ressource.' });
-        }
-
-        // 🔑 CORRECTION: Chercher par 'landlord' et peupler le champ 'landlord'
-        const housing = await Housing.find({ landlord: userId }).populate('landlord', 'name email');
-        res.status(200).json({ housing });
-    } catch (error) {
-        console.error("Erreur sur GET /api/user/housing :", error);
-        res.status(500).json({ message: 'Erreur serveur lors de la récupération des logements.' });
-    }
-});
-
-// Route pour obtenir les détails d'un logement (Correction Landlord/Owner)
-app.get('/api/housing/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        // 🔑 CORRECTION: Peupler le champ 'landlord'
-        const housing = await Housing.findById(id).populate('landlord', 'name email role');
-
-        if (!housing) {
-            return res.status(404).json({ message: 'Annonce non trouvée.' });
-        }
-        res.status(200).json({ housing });
-    } catch (error) {
-        console.error("Erreur sur GET /api/housing/:id :", error);
+        console.error("Erreur sur /api/login :", error);
         res.status(500).json({ message: 'Erreur serveur.' });
     }
 });
 
-// Route pour lister tous les logements (pour la page d'accueil)
+
+// ====================================================================
+// 7. ROUTES ANNONCES (HOUSING)
+// ====================================================================
+
+// Route pour lister TOUS les logements (pour la page d'accueil)
 app.get('/api/housing', async (req, res) => {
     try {
+        // ✅ CORRECTION CLÉ : Filtre par status 'active' pour la page publique
         // Peupler le champ 'landlord' pour l'affichage du nom du propriétaire
         const housing = await Housing.find({ status: 'active' }).populate('landlord', 'name');
         res.status(200).json({ housing });
@@ -377,21 +197,199 @@ app.get('/api/housing', async (req, res) => {
     }
 });
 
-// Route de suppression de logement (Correction Landlord/Owner)
-app.delete('/api/housing/:id', authMiddleware, async (req, res) => {
+// Route pour obtenir les logements du propriétaire connecté (Dashboard)
+app.get('/api/user/housing', authMiddleware, async (req, res) => {
+    const userId = req.userData.userId;
+    try {
+        // ✅ FILTRE DU DASHBOARD : ne filtre que par propriétaire, PAS par statut
+        const housing = await Housing.find({ landlord: userId }).populate('landlord', 'name email');
+        res.status(200).json({ housing });
+    } catch (error) {
+        console.error("Erreur sur GET /api/user/housing :", error);
+        res.status(500).json({ message: 'Erreur serveur.' });
+    }
+});
+
+// Route pour obtenir les détails d'un logement
+app.get('/api/housing/:id', async (req, res) => {
+    try {
+        const housing = await Housing.findById(req.params.id)
+            .populate('landlord', 'name email'); // Récupère le propriétaire
+
+        if (!housing) {
+            return res.status(404).json({ message: 'Logement non trouvé.' });
+        }
+        res.status(200).json({ housing });
+    } catch (error) {
+        console.error("Erreur sur GET /api/housing/:id :", error);
+        res.status(500).json({ message: 'Erreur serveur.' });
+    }
+});
+
+
+// Route de CRÉATION de logement
+app.post('/api/housing', authMiddleware, upload.array('images', 10), async (req, res) => {
+    if (req.userData.userRole !== 'landlord') {
+        return res.status(403).json({ message: 'Accès refusé. Seul le propriétaire peut créer une annonce.' });
+    }
+
+    try {
+        // Assurez-vous que les données JSON sont bien dans le champ 'data' de FormData
+        const data = req.body.data;
+        if (!data) {
+            return res.status(400).json({ message: 'Données de formulaire manquantes.' });
+        }
+
+        let housingData;
+        try {
+            // Parser les données JSON (titre, description, prix, etc.)
+            housingData = JSON.parse(data); 
+        } catch (e) {
+            return res.status(400).json({ message: 'Format des données invalide.' });
+        }
+        
+        housingData.landlord = req.userData.userId; 
+        
+        // 🚨 REMARQUE CLÉ : Le statut est géré par la valeur 'default: active' dans models/Housing.js. 
+        // PAS besoin de définir explicitement housingData.status = 'active';
+
+        // Gérer l'upload des images (si des fichiers ont été attachés)
+        const uploadedImages = [];
+        if (req.files && req.files.length > 0) {
+            for (const file of req.files) {
+                // Utiliser le buffer du fichier pour l'upload
+                const result = await cloudinary.uploader.upload(
+                    `data:${file.mimetype};base64,${file.buffer.toString('base64')}`,
+                    { folder: 'g-house/housing_images' } // Organiser les images dans un dossier
+                );
+                uploadedImages.push(result.secure_url);
+            }
+        }
+        
+        housingData.images = uploadedImages;
+        
+        // Convertir les commodités (amenities) de string à Array si nécessaire
+        if (typeof housingData.amenities === 'string') {
+             housingData.amenities = housingData.amenities.split(',').map(s => s.trim()).filter(s => s.length > 0);
+        }
+
+        const newHousing = new Housing(housingData);
+        await newHousing.save();
+
+        res.status(201).json({ message: 'Annonce créée avec succès !', housing: newHousing });
+    } catch (error) {
+        console.error("Erreur sur POST /api/housing :", error);
+        res.status(500).json({ message: 'Erreur serveur.' });
+    }
+});
+
+
+// Route de MODIFICATION de logement
+app.put('/api/housing/:id', authMiddleware, upload.array('images', 10), async (req, res) => {
+    if (req.userData.userRole !== 'landlord') {
+        return res.status(403).json({ message: 'Accès refusé. Seul le propriétaire peut modifier une annonce.' });
+    }
+
     try {
         const housingId = req.params.id;
         const userId = req.userData.userId;
 
-        // 🔑 CORRECTION: Chercher et supprimer le logement en utilisant 'landlord'
-        const result = await Housing.findOneAndDelete({ _id: housingId, landlord: userId });
-
-        if (!result) {
-            return res.status(404).json({ message: 'Annonce non trouvée ou accès refusé.' });
+        // 1. Trouver le logement
+        let housing = await Housing.findById(housingId);
+        if (!housing) {
+            return res.status(404).json({ message: 'Logement non trouvé.' });
+        }
+        
+        // 2. Vérifier la propriété
+        if (housing.landlord.toString() !== userId) {
+            return res.status(403).json({ message: 'Accès refusé. Vous n\'êtes pas le propriétaire de cette annonce.' });
         }
 
-        res.status(200).json({ message: 'Annonce supprimée avec succès.' });
+        // 3. Parser les données de mise à jour
+        const data = req.body.data;
+        if (!data) {
+            return res.status(400).json({ message: 'Données de formulaire manquantes.' });
+        }
+        
+        let updateData;
+        try {
+            updateData = JSON.parse(data); 
+        } catch (e) {
+            return res.status(400).json({ message: 'Format des données invalide.' });
+        }
 
+        // 4. Gérer l'upload des images
+        const newImages = [...housing.images]; // Conserver les anciennes images
+        
+        if (req.files && req.files.length > 0) {
+            // NOTE: Dans cette version, nous supposons que les nouvelles images REMPLACENT les anciennes. 
+            // La logique plus complexe de gestion d'ajout/suppression doit être implémentée côté client/serveur.
+            
+            // On peut choisir de vider le tableau et de tout uploader à nouveau, ou de n'ajouter que les nouvelles.
+            // Pour simplifier, nous ajoutons les nouvelles images (le front doit vider si nécessaire)
+            
+            // Pour l'édition, le front envoie souvent un array d'URLs existantes + de nouveaux fichiers.
+            // Ici, nous faisons simple : nous n'ajoutons que les nouveaux fichiers.
+            
+            for (const file of req.files) {
+                const result = await cloudinary.uploader.upload(
+                    `data:${file.mimetype};base64,${file.buffer.toString('base64')}`,
+                    { folder: 'g-house/housing_images' }
+                );
+                newImages.push(result.secure_url);
+            }
+            updateData.images = newImages; // Met à jour la liste des images
+        }
+        
+        // Convertir les commodités (amenities) de string à Array si nécessaire
+        if (updateData.amenities && typeof updateData.amenities === 'string') {
+             updateData.amenities = updateData.amenities.split(',').map(s => s.trim()).filter(s => s.length > 0);
+        }
+
+        // 5. Mettre à jour le logement
+        const updatedHousing = await Housing.findByIdAndUpdate(
+            housingId, 
+            { $set: updateData }, 
+            { new: true, runValidators: true } // new: true retourne le document mis à jour
+        );
+
+        res.status(200).json({ message: 'Annonce mise à jour avec succès !', housing: updatedHousing });
+    } catch (error) {
+        console.error("Erreur sur PUT /api/housing/:id :", error);
+        res.status(500).json({ message: 'Erreur serveur.' });
+    }
+});
+
+
+// Route de SUPPRESSION de logement
+app.delete('/api/housing/:id', authMiddleware, async (req, res) => {
+    if (req.userData.userRole !== 'landlord') {
+        return res.status(403).json({ message: 'Accès refusé. Seul le propriétaire peut supprimer une annonce.' });
+    }
+    
+    try {
+        const housingId = req.params.id;
+        const userId = req.userData.userId;
+
+        const housing = await Housing.findById(housingId);
+        if (!housing) {
+            return res.status(404).json({ message: 'Logement non trouvé.' });
+        }
+
+        // Vérifier la propriété
+        if (housing.landlord.toString() !== userId) {
+            return res.status(403).json({ message: 'Accès refusé. Vous n\'êtes pas le propriétaire de cette annonce.' });
+        }
+        
+        // Supprimer le logement
+        await Housing.findByIdAndDelete(housingId);
+        
+        // Supprimer les réservations associées (optionnel, mais recommandé)
+        await Booking.deleteMany({ housing: housingId });
+
+        // NOTE: La suppression des images sur Cloudinary est plus complexe et est omise ici pour la simplicité.
+
+        res.status(200).json({ message: 'Annonce supprimée avec succès.' });
     } catch (error) {
         console.error("Erreur sur DELETE /api/housing/:id :", error);
         res.status(500).json({ message: 'Erreur serveur.' });
@@ -400,99 +398,139 @@ app.delete('/api/housing/:id', authMiddleware, async (req, res) => {
 
 
 // ====================================================================
-// 7. ROUTES RÉSERVATIONS (BOOKINGS)
+// 8. ROUTES RÉSERVATIONS (BOOKING) ET PAIEMENT (STRIPE)
 // ====================================================================
 
-// Route pour créer une session de paiement Stripe (Correction Landlord/Owner)
-app.post('/api/bookings/create-session', authMiddleware, async (req, res) => {
-    const { housingId, startDate, endDate } = req.body;
-    const tenantId = req.userData.userId;
+// Route pour démarrer le processus de réservation (Stripe Checkout Session)
+app.post('/api/booking/create-checkout-session', authMiddleware, async (req, res) => {
+    if (req.userData.userRole !== 'tenant') {
+        return res.status(403).json({ message: 'Accès refusé. Seul le locataire peut réserver.' });
+    }
 
     try {
-        const housing = await Housing.findById(housingId);
-        if (!housing) {
-            return res.status(404).json({ message: 'Logement non trouvé.' });
-        }
-        
-        // 1. Calculer le prix total (cette logique DOIT être sur le serveur)
-        const dateStart = new Date(startDate);
-        const dateEnd = new Date(endDate);
-        if (dateEnd <= dateStart) {
-            return res.status(400).json({ message: 'La date de fin doit être après la date de début.' });
-        }
-        
-        const diffTime = Math.abs(dateEnd.getTime() - dateStart.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-        const pricePerDay = housing.price / 30.0; 
-        const totalPrice = Math.ceil(pricePerDay * diffDays); // Prix total en euros, arrondi à l'entier supérieur
+        const { housingId, startDate, endDate } = req.body;
+        const tenantId = req.userData.userId;
 
-        // 2. Créer la réservation initiale dans la DB avec statut 'pending'
+        // 1. Vérifier le logement
+        const housing = await Housing.findById(housingId);
+        if (!housing || housing.status !== 'active') {
+            return res.status(404).json({ message: 'Logement non disponible ou non trouvé.' });
+        }
+        
+        // 2. Calculer le prix final côté serveur
+        const finalPrice = calculateFinalPrice(housing.price, startDate, endDate);
+        const priceInCents = Math.round(finalPrice * 100);
+
+        if (priceInCents <= 0) {
+             return res.status(400).json({ message: 'Les dates de réservation sont invalides.' });
+        }
+        
+        // 3. Créer une intention de réservation temporaire
         const newBooking = new Booking({
-            tenant: tenantId,
             housing: housingId,
-            // 🔑 CORRECTION: Utiliser housing.landlord pour assigner l'ID du propriétaire
-            landlord: housing.landlord, 
-            startDate: dateStart,
-            endDate: dateEnd,
-            totalPrice: totalPrice, // Le prix exact calculé par le serveur
-            status: 'pending',
+            tenant: tenantId,
+            landlord: housing.landlord,
+            startDate: startDate,
+            endDate: endDate,
+            totalPrice: finalPrice,
+            status: 'pending' // En attente de paiement
         });
         await newBooking.save();
 
-        // 3. Créer la session Stripe
+        // 4. Créer la session de paiement Stripe
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
-            line_items: [{
-                price_data: {
-                    currency: 'eur',
-                    product_data: {
-                        name: housing.title,
-                        description: `Réservation du ${startDate} au ${endDate}.`,
+            line_items: [
+                {
+                    price_data: {
+                        currency: 'eur',
+                        product_data: {
+                            name: housing.title,
+                            description: `Réservation du ${moment(startDate).format('DD/MM/YYYY')} au ${moment(endDate).format('DD/MM/YYYY')}`,
+                        },
+                        unit_amount: priceInCents,
                     },
-                    unit_amount: totalPrice * 100, // Stripe attend le montant en centimes
+                    quantity: 1,
                 },
-                quantity: 1,
-            }],
+            ],
             mode: 'payment',
-            success_url: `${process.env.FRONTEND_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${process.env.FRONTEND_URL}/housing/${housingId}`,
-            // IMPORTANT: Stocker l'ID de la réservation dans les metadata pour le webhook
+            // URL de redirection après succès ou échec (doit correspondre au front)
+            success_url: `${process.env.FRONTEND_URL}/success?session_id={CHECKOUT_SESSION_ID}&booking_id=${newBooking._id}`,
+            cancel_url: `${process.env.FRONTEND_URL}/housing/${housingId}?cancelled=true`,
             metadata: {
                 bookingId: newBooking._id.toString(),
                 tenantId: tenantId.toString(),
             },
         });
 
-        res.json({ id: session.id, bookingId: newBooking._id });
+        res.status(200).json({ sessionId: session.id, url: session.url });
 
     } catch (error) {
-        console.error("Erreur sur POST /api/bookings/create-session :", error);
-        if (error.name === 'ValidationError') {
-            const messages = Object.values(error.errors).map(val => val.message).join('. ');
-            return res.status(400).json({ message: `Erreur de validation: ${messages}` });
-        }
+        console.error("Erreur sur /api/booking/create-checkout-session :", error);
         res.status(500).json({ message: 'Erreur serveur lors de la création de la session de paiement.' });
     }
 });
 
-// Route pour récupérer les réservations (pour locataire OU propriétaire)
-app.get('/api/bookings', authMiddleware, async (req, res) => {
+// Route de succès de paiement (gérée par le front pour finaliser la réservation)
+app.get('/api/booking/payment-success', authMiddleware, async (req, res) => {
     try {
-        const userId = req.userData.userId;
-        const userRole = req.userData.userRole;
+        const { session_id, booking_id } = req.query;
 
+        // 1. Vérifier la session Stripe
+        const session = await stripe.checkout.sessions.retrieve(session_id);
+
+        if (session.payment_status === 'paid' && session.metadata.bookingId === booking_id) {
+            // 2. Mettre à jour la réservation
+            const updatedBooking = await Booking.findByIdAndUpdate(
+                booking_id,
+                { $set: { status: 'confirmed', stripeSessionId: session_id } },
+                { new: true }
+            );
+            
+            if (!updatedBooking) {
+                return res.status(404).json({ message: 'Réservation non trouvée.' });
+            }
+
+            // 3. Créer une notification pour le propriétaire
+            const notification = new Notification({
+                user: updatedBooking.landlord,
+                type: 'booking_confirmed',
+                message: `Une nouvelle réservation a été confirmée pour votre logement : ${updatedBooking.housing.title}`,
+                housing: updatedBooking.housing,
+                booking: updatedBooking._id
+            });
+            await notification.save();
+            
+            res.status(200).json({ message: 'Paiement réussi et réservation confirmée !', booking: updatedBooking });
+        } else {
+            res.status(400).json({ message: 'Statut de paiement invalide ou session mismatch.' });
+        }
+    } catch (error) {
+        console.error("Erreur sur /api/booking/payment-success :", error);
+        res.status(500).json({ message: 'Erreur serveur lors de la confirmation de la réservation.' });
+    }
+});
+
+
+// Route pour obtenir toutes les réservations (pour le Dashboard du propriétaire)
+app.get('/api/bookings', authMiddleware, async (req, res) => {
+    // Peut être appelé par le locataire pour voir ses réservations ou par le propriétaire pour voir celles sur ses logements.
+    const userId = req.userData.userId;
+    const userRole = req.userData.userRole;
+
+    try {
         let query = {};
-        if (userRole === 'tenant') {
-            query = { tenant: userId };
-        } else if (userRole === 'landlord') {
-            // Le propriétaire voit toutes les réservations pour ses logements
-            query = { landlord: userId }; 
+        if (userRole === 'landlord') {
+            query.landlord = userId;
+        } else {
+            query.tenant = userId;
         }
 
         const bookings = await Booking.find(query)
-            .populate('housing', 'title images price') // Logement
-            .populate('tenant', 'name email') // Locataire
-            .populate('landlord', 'name email'); // Propriétaire
+            .populate('housing', 'title images price') // Logement lié
+            .populate('tenant', 'name email') // Locataire lié
+            .populate('landlord', 'name email') // Propriétaire lié
+            .sort({ createdAt: -1 });
 
         res.status(200).json({ bookings });
     } catch (error) {
@@ -501,41 +539,42 @@ app.get('/api/bookings', authMiddleware, async (req, res) => {
     }
 });
 
-// Route pour mettre à jour le statut d'une réservation (Propriétaire uniquement)
+
+// Route pour mettre à jour le statut d'une réservation (propriétaire)
 app.put('/api/bookings/:id/status', authMiddleware, async (req, res) => {
-    const { status } = req.body;
-    const bookingId = req.params.id;
-    const userId = req.userData.userId;
+    if (req.userData.userRole !== 'landlord') {
+        return res.status(403).json({ message: 'Accès refusé. Seul le propriétaire peut modifier le statut.' });
+    }
 
     try {
-        if (req.userData.userRole !== 'landlord') {
-            return res.status(403).json({ message: 'Accès refusé. Seul le propriétaire peut modifier le statut.' });
+        const bookingId = req.params.id;
+        const newStatus = req.body.status;
+        const userId = req.userData.userId;
+
+        // Vérification du statut valide
+        const validStatuses = ['pending', 'confirmed', 'cancelled', 'completed'];
+        if (!validStatuses.includes(newStatus)) {
+            return res.status(400).json({ message: 'Statut de réservation invalide.' });
         }
 
         const booking = await Booking.findById(bookingId);
-        if (!booking || booking.landlord.toString() !== userId) {
-            return res.status(404).json({ message: 'Réservation non trouvée ou accès non autorisé.' });
+        if (!booking) {
+            return res.status(404).json({ message: 'Réservation non trouvée.' });
         }
+
+        // Vérifier si le propriétaire est bien celui de la réservation
+        if (booking.landlord.toString() !== userId) {
+            return res.status(403).json({ message: 'Accès refusé. Vous n\'êtes pas le propriétaire de cette réservation.' });
+        }
+
+        // Mise à jour du statut
+        booking.status = newStatus;
+        await booking.save();
         
-        // Seules les réservations en 'pending' peuvent être confirmées/annulées par le propriétaire
-        // et seulement si le paiement a été effectué via le webhook (status 'confirmed').
-        if (booking.status !== 'pending' && booking.status !== 'confirmed') {
-             return res.status(400).json({ message: `Le statut actuel (${booking.status}) ne peut pas être modifié manuellement.` });
-        }
-
-        if (status === 'confirmed' || status === 'cancelled') {
-            const updatedBooking = await Booking.findByIdAndUpdate(
-                bookingId, 
-                { status }, 
-                { new: true, runValidators: true }
-            );
-
-            // TODO: Envoyer une notification au locataire
-            
-            res.status(200).json({ message: `Statut mis à jour à ${status}.`, booking: updatedBooking });
-        } else {
-            return res.status(400).json({ message: 'Statut de réservation non valide.' });
-        }
+        // Notification pour le locataire (si nécessaire)
+        // ... (Logique de notification)
+        
+        res.status(200).json({ message: `Statut de réservation mis à jour à ${newStatus}.`, booking });
 
     } catch (error) {
         console.error("Erreur sur PUT /api/bookings/:id/status :", error);
@@ -545,22 +584,19 @@ app.put('/api/bookings/:id/status', authMiddleware, async (req, res) => {
 
 
 // ====================================================================
-// 8. ROUTES MESSAGERIE (CONVERSATIONS)
+// 9. ROUTES MESSAGERIE (CONVERSATIONS ET MESSAGES)
 // ====================================================================
 
-// Route pour récupérer les conversations de l'utilisateur
+// Route pour obtenir la liste des conversations de l'utilisateur
 app.get('/api/conversations', authMiddleware, async (req, res) => {
     try {
         const userId = req.userData.userId;
 
+        // Cherche les conversations où l'utilisateur est un participant
         const conversations = await Conversation.find({ participants: userId })
-            .populate('housing', 'title') 
             .populate('participants', 'name email') 
-            .populate({
-                path: 'lastMessage',
-                select: 'content sender createdAt'
-            })
-            .sort({ updatedAt: -1 });
+            .populate('housing', 'title') // Logement lié
+            .sort({ updatedAt: -1 }); 
 
         res.status(200).json({ conversations });
     } catch (error) {
@@ -569,39 +605,38 @@ app.get('/api/conversations', authMiddleware, async (req, res) => {
     }
 });
 
-// Route pour commencer ou récupérer une conversation existante
+// Route pour démarrer une conversation (ou récupérer une existante)
 app.post('/api/conversations/start', authMiddleware, async (req, res) => {
-    const { recipientId, housingId } = req.body;
-    const senderId = req.userData.userId;
-
     try {
+        const { recipientId, housingId } = req.body;
+        const senderId = req.userData.userId;
+        
         if (senderId === recipientId) {
             return res.status(400).json({ message: 'Vous ne pouvez pas démarrer une conversation avec vous-même.' });
         }
 
-        // 1. Chercher si une conversation existe déjà pour ces deux utilisateurs et ce logement
+        // 1. Chercher si une conversation existe déjà pour ce couple et ce logement
         let conversation = await Conversation.findOne({
-            housing: housingId,
-            participants: { $all: [senderId, recipientId] }
-        });
-
-        if (conversation) {
-            // Conversation existante trouvée
-            return res.status(200).json({ conversation });
-        }
-
-        // 2. Créer une nouvelle conversation
-        const newConversation = new Conversation({
-            participants: [senderId, recipientId],
+            participants: { $all: [senderId, recipientId] },
             housing: housingId
         });
-        await newConversation.save();
 
-        res.status(201).json({ conversation: newConversation });
+        // 2. Si non, créer une nouvelle conversation
+        if (!conversation) {
+            conversation = new Conversation({
+                participants: [senderId, recipientId],
+                housing: housingId,
+            });
+            await conversation.save();
+        }
 
+        // 3. Charger la conversation avec les données complètes
+        conversation = await conversation.populate('participants', 'name email').populate('housing', 'title');
+
+        res.status(200).json({ conversation });
     } catch (error) {
         console.error("Erreur sur POST /api/conversations/start :", error);
-        res.status(500).json({ message: 'Erreur serveur lors de la création de la conversation.' });
+        res.status(500).json({ message: 'Erreur serveur.' });
     }
 });
 
@@ -612,71 +647,172 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
         const userId = req.userData.userId;
         
         const conversation = await Conversation.findById(id);
-        if (!conversation || !conversation.participants.map(p => p.toString()).includes(userId)) {
+        
+        if (!conversation || !conversation.participants.includes(userId)) {
             return res.status(403).json({ message: 'Accès refusé. Vous ne faites pas partie de cette conversation.' });
         }
         
-        const messages = await Message.find({ conversation: id }).populate('sender', 'name');
+        const messages = await Message.find({ conversation: id })
+            .populate('sender', 'name')
+            .sort({ createdAt: 1 }); // Ordre chronologique
+
         res.status(200).json({ messages });
     } catch (error) {
         console.error("Erreur sur GET /api/conversations/:id/messages :", error);
-        res.status(500).json({ message: 'Erreur serveur lors de la récupération des messages.' });
+        res.status(500).json({ message: 'Une erreur est survenue lors de la récupération des messages.' });
     }
 });
 
 
 // ====================================================================
-// 9. GESTION DES WEBSOCKETS (MESSAGERIE INSTANTANÉE)
+// 10. ROUTES DOCUMENTS DE PROFIL
 // ====================================================================
 
-// Créer l'instance WebSocket server attachée au serveur HTTP
-const wss = new WebSocket.Server({ server });
+// Route pour télécharger un document de profil
+app.post('/api/user/documents', authMiddleware, upload.single('file'), async (req, res) => {
+    // NOTE: Seul le locataire peut généralement uploader des documents de profil
+    if (req.userData.userRole !== 'tenant') {
+        // Optionnel : permettre aussi au propriétaire d'uploader
+        // return res.status(403).json({ message: 'Accès refusé. Seul le locataire peut uploader des documents.' });
+    }
 
-// Map pour associer userId et l'instance WebSocket
-const userWsMap = new Map(); 
+    try {
+        const { docType } = req.body; 
+        const userId = req.userData.userId;
+        const file = req.file;
+
+        if (!file || !docType) {
+            return res.status(400).json({ message: 'Fichier ou type de document manquant.' });
+        }
+
+        // Upload vers Cloudinary
+        const result = await cloudinary.uploader.upload(
+            `data:${file.mimetype};base64,${file.buffer.toString('base64')}`,
+            { 
+                folder: `g-house/user_docs/${userId}`, 
+                resource_type: 'raw', // Pour les PDF/autres
+                public_id: docType // Utiliser le type comme nom
+            }
+        );
+
+        // Sauvegarder l'info dans la DB (on remplace s'il existe déjà pour ce type)
+        const newDoc = await ProfileDoc.findOneAndUpdate(
+            { user: userId, docType: docType },
+            { 
+                url: result.secure_url, 
+                fileName: file.originalname,
+                mimetype: file.mimetype,
+                uploadedAt: Date.now()
+            },
+            { new: true, upsert: true } // Crée si non trouvé
+        );
+
+        res.status(200).json({ message: `Document '${docType}' téléchargé avec succès.`, document: newDoc });
+    } catch (error) {
+        console.error("Erreur sur POST /api/user/documents :", error);
+        res.status(500).json({ message: 'Erreur serveur lors du téléchargement du document.' });
+    }
+});
+
+// Route pour obtenir la liste des documents de profil
+app.get('/api/user/documents', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.userData.userId;
+        
+        // Le propriétaire doit pouvoir voir les documents des locataires... 
+        // (Logique omise ici pour ne voir que les siens)
+        const documents = await ProfileDoc.find({ user: userId });
+
+        res.status(200).json({ documents });
+    } catch (error) {
+        console.error("Erreur sur GET /api/user/documents :", error);
+        res.status(500).json({ message: 'Erreur serveur.' });
+    }
+});
+
+
+// ====================================================================
+// 11. GESTION DES NOTIFICATIONS
+// ====================================================================
+
+// Route pour récupérer les notifications de l'utilisateur
+app.get('/api/notifications', authMiddleware, async (req, res) => {
+    try {
+        const notifications = await Notification.find({ user: req.userData.userId })
+            .populate('housing', 'title')
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({ notifications });
+    } catch (error) {
+        console.error("Erreur sur GET /api/notifications :", error);
+        res.status(500).json({ message: 'Erreur serveur.' });
+    }
+});
+
+// Route pour marquer une notification comme lue
+app.put('/api/notifications/:id/read', authMiddleware, async (req, res) => {
+    try {
+        const notification = await Notification.findOneAndUpdate(
+            { _id: req.params.id, user: req.userData.userId },
+            { $set: { isRead: true } },
+            { new: true }
+        );
+
+        if (!notification) {
+            return res.status(404).json({ message: 'Notification non trouvée ou accès refusé.' });
+        }
+
+        res.status(200).json({ message: 'Notification marquée comme lue.', notification });
+    } catch (error) {
+        console.error("Erreur sur PUT /api/notifications/:id/read :", error);
+        res.status(500).json({ message: 'Erreur serveur.' });
+    }
+});
+
+
+// ====================================================================
+// 12. GESTION DES WEBSOCKETS (CHAT)
+// ====================================================================
+
+const wss = new WebSocket.Server({ server });
+const userWsMap = new Map(); // Map pour associer userId et l'instance WebSocket
 
 wss.on('connection', (ws, req) => {
     let userId = null;
-    
-    // 1. Authentification via le query param (après la connexion)
-    // Le client doit envoyer un message initial de type 'AUTH' avec le token
+
+    // 1. Authentification lors de la connexion
+    // Le front doit envoyer un message 'AUTH' immédiatement avec le token
     ws.on('message', async (message) => {
         try {
-            const data = JSON.parse(message.toString());
+            const data = JSON.parse(message);
 
-            if (data.type === 'AUTH') {
-                const token = data.token;
-                try {
-                    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-                    userId = decoded.userId;
-                    userWsMap.set(userId, ws);
-                    console.log(`Utilisateur connecté via WebSocket: ${userId}`);
-                    ws.send(JSON.stringify({ type: 'STATUS', message: 'Authentification WebSocket réussie.' }));
-                } catch (err) {
-                    ws.send(JSON.stringify({ type: 'ERROR', message: 'Token invalide.' }));
-                    ws.close();
-                }
-                return;
-            }
-
-            // 2. Vérification de l'authentification pour les messages suivants
-            if (!userId) {
-                ws.send(JSON.stringify({ type: 'ERROR', message: 'Non authentifié.' }));
-                return;
-            }
-
-            // 3. Traitement du message
-            if (data.type === 'SEND_MESSAGE' && data.conversationId && data.content) {
-                const { conversationId, content } = data;
+            if (data.type === 'AUTH' && data.token) {
+                // Vérifier le token JWT
+                const decodedToken = jwt.verify(data.token, process.env.JWT_SECRET);
+                userId = decodedToken.userId;
                 
+                // Stocker l'utilisateur dans la map
+                userWsMap.set(userId, ws);
+                console.log(`Utilisateur connecté via WebSocket: ${userId}`);
+
+                ws.send(JSON.stringify({ type: 'STATUS', status: 'connected', userId: userId }));
+                return;
+            }
+
+            // 2. Traitement du message (si l'utilisateur est authentifié)
+            if (data.type === 'MESSAGE' && userId) {
+                const { conversationId, content } = data;
+
+                if (!conversationId || !content) return;
+
+                // Vérifier que l'utilisateur fait partie de la conversation
                 const conversation = await Conversation.findById(conversationId);
-                if (!conversation) return;
+                if (!conversation || !conversation.participants.includes(userId)) {
+                    ws.send(JSON.stringify({ type: 'ERROR', message: 'Accès à la conversation refusé.' }));
+                    return;
+                }
 
-                // Trouver l'autre participant
-                const recipientId = conversation.participants.find(p => p.toString() !== userId);
-                if (!recipientId) return;
-
-                // Sauvegarder le message dans la DB
+                // 3. Sauvegarder le message
                 const newMessage = new Message({
                     conversation: conversationId,
                     sender: userId,
@@ -684,19 +820,22 @@ wss.on('connection', (ws, req) => {
                 });
                 await newMessage.save();
 
-                // Mettre à jour la conversation
+                // 4. Mettre à jour la conversation (lastMessage et updatedAt)
                 conversation.lastMessage = newMessage._id;
                 conversation.updatedAt = Date.now();
                 await conversation.save();
 
+                // 5. Relayer le message aux participants
+                const recipientId = conversation.participants.find(p => p.toString() !== userId);
+                
                 const messageToSend = {
                     type: 'NEW_MESSAGE',
                     message: {
                         _id: newMessage._id,
                         content: newMessage.content,
-                        // Note: L'info du sender devra être récupérée du contexte côté client/WebSocket
-                        conversation: conversationId,
+                        sender: { _id: userId, name: req.userData?.userName || 'Moi' }, // Utilisez le nom si disponible
                         createdAt: newMessage.createdAt,
+                        conversation: conversationId,
                     }
                 };
                 
@@ -711,12 +850,15 @@ wss.on('connection', (ws, req) => {
             }
 
         } catch (error) {
+            // Si le token est invalide ou autre erreur
             console.error('Erreur de traitement de message WebSocket:', error);
-            ws.send(JSON.stringify({ type: 'ERROR', message: 'Erreur serveur.' }));
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ERROR', message: 'Erreur serveur ou authentification invalide.' }));
+            }
         }
     });
 
-    // 4. Déconnexion
+    // 6. Déconnexion
     ws.on('close', () => {
         if (userId) {
             userWsMap.delete(userId); // Supprimer l'utilisateur de la map
@@ -726,9 +868,9 @@ wss.on('connection', (ws, req) => {
 });
 
 
-// ----------------------------------------------------
-// FIN DES ROUTES API
-// ----------------------------------------------------
+// ====================================================================
+// 13. ROUTES DE FIN ET DÉMARRAGE DU SERVEUR
+// ====================================================================
 
 // Route pour la documentation de l'API (Swagger)
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
