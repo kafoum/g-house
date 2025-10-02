@@ -369,4 +369,4 @@ app.get('/', (req, res) => {
 
 server.listen(PORT, () => {
     console.log(`Le serveur de G-House est en cours d'exécution sur le port ${PORT}`);
-});
+}); //merci
