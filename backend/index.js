@@ -15,7 +15,7 @@ const nodemailer = require('nodemailer');
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./swagger'); // Assurez-vous d'avoir ce fichier
+const swaggerSpec = require('./swagger'); 
 const path = require('path');
 const cors = require('cors'); 
 
@@ -43,7 +43,7 @@ const upload = multer({ storage: storage });
 
 
 // ====================================================================
-// IMPORTS DES MODÈLES MONGOOSE
+// IMPORTS DES MODÈLES MONGOOSE 
 // ====================================================================
 const User = require('./models/User');
 const Housing = require('./models/Housing');
@@ -63,7 +63,6 @@ const PORT = process.env.PORT || 5000;
 // CONNEXION À LA BASE DE DONNÉES
 // ====================================================================
 
-// Utilisation de MONGODB_URI (corrigé) et retrait des options dépréciées
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('Connexion à MongoDB réussie !'))
     .catch(err => console.error('Erreur de connexion à MongoDB :', err));
@@ -74,12 +73,12 @@ mongoose.connect(process.env.MONGODB_URI)
 // ====================================================================
 
 app.use(cors());
-app.use(express.json()); // pour parser les requêtes JSON
+app.use(express.json()); // CLÉ 1 : pour parser les requêtes JSON
 app.use(express.urlencoded({ extended: true }));
 
 
 // ====================================================================
-// ROUTES D'AUTHENTIFICATION (Corrigées)
+// ROUTES D'AUTHENTIFICATION (Avec Débogage)
 // ====================================================================
 
 // 1. Route d'inscription : POST /api/register
@@ -104,14 +103,21 @@ app.post('/api/register', async (req, res) => {
 });
 
 
-// 2. Route de connexion : POST /api/login (CORRECTION ULTIME DE LA CASTERROR)
+// 2. Route de connexion : POST /api/login (CORRECTION AVEC DÉBOGAGE)
 app.post('/api/login', async (req, res) => {
     try {
         // Extraction directe des champs
         const { email, password } = req.body;
 
+        // 🔑 DÉBOGAGE CRITIQUE : Vérifiez ce que le serveur reçoit
+        console.log('--- DEBOGAGE LOGIN ---');
+        console.log('req.body reçu:', req.body);
+        console.log('Email extrait (devrait être une string):', email, 'Type:', typeof email);
+        console.log('Password extrait (devrait être une string):', password, 'Type:', typeof password);
+        console.log('----------------------');
+
         // 1. Trouver l'utilisateur par email
-        // 🔑 CORRECTION : On force l'utilisation d'une structure { key: value } explicite
+        // La ligne où la CastError se produit si 'email' est malformé.
         const user = await User.findOne({ email: email }); 
 
         if (!user) {
@@ -144,6 +150,7 @@ app.post('/api/login', async (req, res) => {
         });
 
     } catch (error) {
+        // 🚨 C'est cette ligne qui capture la CastError de Mongoose.
         console.error("Erreur lors de la connexion :", error);
         res.status(500).json({ message: 'Erreur serveur.' });
     }
@@ -154,9 +161,6 @@ app.post('/api/login', async (req, res) => {
 // AUTRES ROUTES API (Ajoutez vos routeurs ici)
 // ====================================================================
 
-// Exemple :
-// app.use('/api/housing', require('./routes/housing')); 
-// app.use('/api/bookings', require('./routes/booking')); 
 // ...
 
 
