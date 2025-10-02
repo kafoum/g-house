@@ -3,39 +3,48 @@
 // Charge les variables d'environnement depuis le fichier .env
 require('dotenv').config();
 
-// Importe les modules nécessaires
-const authMiddleware = require('./middleware/auth'); // Votre middleware d'authentification
+// ====================================================================
+// IMPORTS DES MODULES
+// ====================================================================
+const authMiddleware = require('./middleware/auth'); 
 const jwt = require('jsonwebtoken');
 const express = require('express');
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs'); // Utilisé pour hacher et comparer les mots de passe
+const bcrypt = require('bcryptjs'); 
 const nodemailer = require('nodemailer');
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./swagger');
+const swaggerSpec = require('./swagger'); // Assurez-vous d'avoir ce fichier
 const path = require('path');
 const cors = require('cors'); 
 
-// Importe les modules WebSocket
+// Modules WebSocket
 const http = require('http');
 const WebSocket = require('ws');
+
+// ====================================================================
+// INITIALISATION DES SERVICES EXTERNES
+// ====================================================================
 
 // INITIALISATION DE STRIPE
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
 
-// Configurez Cloudinary
+// Configuration Cloudinary
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Configurez Multer pour la gestion des fichiers en mémoire
+// Configuration Multer pour la gestion des fichiers en mémoire
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-// Importe les modèles
+
+// ====================================================================
+// IMPORTS DES MODÈLES MONGOOSE (Assurez-vous que ces fichiers existent)
+// ====================================================================
 const User = require('./models/User');
 const Housing = require('./models/Housing');
 const Booking = require('./models/Booking');
@@ -50,8 +59,12 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 5000;
 
-// Connexion à la base de données MongoDB
-mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+// ====================================================================
+// CONNEXION À LA BASE DE DONNÉES
+// ====================================================================
+
+// 🔑 CORRECTION : Utilisation de MONGODB_URI et retrait des options dépréciées
+mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('Connexion à MongoDB réussie !'))
     .catch(err => console.error('Erreur de connexion à MongoDB :', err));
 
@@ -61,13 +74,12 @@ mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTop
 // ====================================================================
 
 app.use(cors());
-app.use(express.json()); // pour parser les requêtes JSON (application/json)
-// Middleware pour gérer les données de formulaires HTML non-JSON
+app.use(express.json()); // pour parser les requêtes JSON
 app.use(express.urlencoded({ extended: true }));
 
 
 // ====================================================================
-// 🔑 ROUTES D'AUTHENTIFICATION (Ajoutées pour résoudre le problème 400)
+// ROUTES D'AUTHENTIFICATION (Corrigées)
 // ====================================================================
 
 // 1. Route d'inscription : POST /api/register
@@ -75,17 +87,15 @@ app.post('/api/register', async (req, res) => {
     try {
         const { name, email, password, role } = req.body;
 
-        // Création d'un nouvel utilisateur (le middleware 'pre' dans User.js hache le mot de passe)
+        // Le middleware 'pre' dans User.js hache le mot de passe
         const user = await User.create({ name, email, password, role });
 
-        // Succès de l'inscription
         res.status(201).json({ 
             message: 'Inscription réussie ! Veuillez vous connecter.', 
             user: { _id: user._id, name: user.name, email: user.email, role: user.role }
         });
 
     } catch (error) {
-        // Gérer les erreurs de validation ou de duplicata (email unique)
         if (error.code === 11000) {
             return res.status(400).json({ message: 'Cet email est déjà utilisé.' });
         }
@@ -95,36 +105,34 @@ app.post('/api/register', async (req, res) => {
 });
 
 
-// 2. Route de connexion : POST /api/login (Le point critique à vérifier)
+// 2. Route de connexion : POST /api/login (CORRECTION DE LA CASTERROR)
 app.post('/api/login', async (req, res) => {
     try {
-        const { email, password } = req.body;
+        // 🔑 CORRECTION : Renommer les variables pour éviter l'ambiguïté Mongoose
+        const { email: userEmail, password: userPassword } = req.body;
 
         // 1. Trouver l'utilisateur par email
-        const user = await User.findOne({ email });
+        const user = await User.findOne({ email: userEmail }); 
 
-        // Si l'utilisateur n'existe pas, renvoyer 400 (Bad Request)
         if (!user) {
-            // Renvoyer un message générique pour ne pas révéler si l'email existe ou non.
             return res.status(400).json({ message: 'Identifiants invalides.' }); 
         }
 
-        // 2. 🔑 COMPARER LE MOT DE PASSE HACHÉ (Utilise bcrypt.compare)
-        const isMatch = await bcrypt.compare(password, user.password);
+        // 2. Comparer le mot de passe haché
+        const isMatch = await bcrypt.compare(userPassword, user.password); 
 
-        // Si la comparaison échoue, renvoyer 400 (Bad Request)
         if (!isMatch) {
             return res.status(400).json({ message: 'Identifiants invalides.' }); 
         }
         
         // 3. Générer le jeton JWT
         const token = jwt.sign(
-            { userId: user._id, role: user.role }, // Payload minimal du jeton
+            { userId: user._id, role: user.role }, 
             process.env.JWT_SECRET,
             { expiresIn: '24h' }
         );
 
-        // 4. Succès de la connexion : renvoyer le jeton et les infos utilisateur
+        // 4. Succès de la connexion
         res.status(200).json({
             token: token,
             user: {
@@ -143,15 +151,18 @@ app.post('/api/login', async (req, res) => {
 
 
 // ====================================================================
-// 🔑 ROUTES DE LOGEMENT (Exemple, vos autres routes API viendraient ici)
+// AUTRES ROUTES API (Ajoutez vos routes ici ou utilisez des routeurs)
 // ====================================================================
+
+// Exemple de route protégée (vous utiliserez sans doute 'app.use')
 // app.use('/api/housing', require('./routes/housing')); 
-// app.use('/api/bookings', require('./routes/bookings')); 
-// ... et toutes les autres routes ...
+// app.use('/api/bookings', require('./routes/booking')); 
+// app.use('/api/user', require('./routes/user')); 
+// ... etc.
 
 
 // ====================================================================
-// GESTION DES WEBSOCKETS (Déjà présent dans votre snippet)
+// GESTION DES WEBSOCKETS
 // ====================================================================
 
 // Map pour associer userId et l'instance WebSocket
@@ -160,19 +171,17 @@ const userWsMap = new Map();
 wss.on('connection', (ws, req) => {
     let userId = null;
 
-    // 1. Extraction du token du header de la requête
+    // 1. Extraction et vérification du token pour l'authentification WS
     const urlParams = new URLSearchParams(req.url.split('?')[1]);
     const token = urlParams.get('token');
 
     if (token) {
         try {
-            // Vérification et décodage du token
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
             userId = decoded.userId;
-            userWsMap.set(userId, ws); // Associer l'ID de l'utilisateur à sa connexion WS
+            userWsMap.set(userId, ws); 
             console.log(`Nouvel utilisateur connecté via WebSocket: ${userId}`);
 
-            // Envoi d'une confirmation de connexion (optionnel)
             ws.send(JSON.stringify({ type: 'CONNECTED', userId }));
             
         } catch (error) {
@@ -194,11 +203,10 @@ wss.on('connection', (ws, req) => {
             if (data.type === 'SEND_MESSAGE') {
                 const { conversationId, content, recipientId } = data;
 
-                // 🚨 IMPORTANT : La logique d'enregistrement du message doit être ici
                 // Enregistrer le message dans la base de données
                 const newMessage = new Message({
                     conversation: conversationId,
-                    sender: userId, // L'ID de l'utilisateur connecté
+                    sender: userId, 
                     content: content
                 });
                 await newMessage.save();
@@ -209,7 +217,7 @@ wss.on('connection', (ws, req) => {
                     message: {
                         _id: newMessage._id,
                         content: newMessage.content,
-                        sender: { _id: userId, name: userWsMap.get(userId)?.name || 'Moi' }, // Le nom peut être récupéré via la Map ou l'ID si nécessaire
+                        sender: { _id: userId, name: 'Moi' }, // Le nom peut être récupéré de l'utilisateur ou la conversation
                         createdAt: newMessage.createdAt,
                         conversation: conversationId,
                     }
@@ -231,7 +239,7 @@ wss.on('connection', (ws, req) => {
         }
     });
 
-    // 4. Déconnexion
+    // 3. Déconnexion
     ws.on('close', () => {
         userWsMap.delete(userId); // Supprimer l'utilisateur de la map
         console.log(`Utilisateur déconnecté via WebSocket: ${userId}`);
@@ -239,9 +247,9 @@ wss.on('connection', (ws, req) => {
 });
 
 
-// ----------------------------------------------------
-// FIN DES ROUTES API
-// ----------------------------------------------------
+// ====================================================================
+// ROUTES DE FIN ET DÉMARRAGE DU SERVEUR
+// ====================================================================
 
 // Route pour la documentation de l'API (Swagger)
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
