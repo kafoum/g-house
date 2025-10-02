@@ -27,7 +27,6 @@ api.interceptors.request.use(config => {
         config.headers.Authorization = `Bearer ${token}`; 
     }
 
-    // Assurer que Content-Type n'est pas inclus pour les uploads de fichiers (FormData)
     if (config.data instanceof FormData) {
         delete config.headers['Content-Type'];
     }
@@ -70,18 +69,23 @@ export const getHousingDetails = (id) => {
     return getHousingDetail(id); 
 };
 
-/**
- * 🔑 CORRECTION VERCEL : Ajout de la fonction manquante.
- * Met à jour les détails d'un logement existant.
- */
 export const updateHousing = (id, housingData) => {
-    // Utilise la méthode PUT ou PATCH, souvent PUT pour une mise à jour complète
     return api.put(`/housing/${id}`, housingData); 
 };
 
 export const deleteHousing = (id) => {
     return api.delete(`/housing/${id}`);
 };
+
+/**
+ * 🔑 CORRECTION VERCEL : Ajout de la fonction manquante.
+ * Récupère tous les logements créés par l'utilisateur connecté.
+ */
+export const getUserHousing = () => {
+    // Supposons que la route est /user/housing (protégée par authMiddleware)
+    return api.get('/user/housing'); 
+};
+
 
 // ======================================================================
 // 5. FONCTIONS RÉSERVATIONS & PAIEMENT
