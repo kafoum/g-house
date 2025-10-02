@@ -1,11 +1,14 @@
+// Fichier : frontend/src/components/BookingForm.jsx (Mise à jour pour la redirection Stripe)
+
 import React, { useState, useEffect } from 'react';
-import { useStripe, useElements } from '@stripe/react-stripe-js';
+// useStripe et useElements ne sont pas nécessaires pour Stripe Checkout (redirection), mais peuvent rester importés si la configuration initiale l'exige.
+// import { useStripe, useElements } from '@stripe/react-stripe-js'; 
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-// 🔑 L'importation manquante qui corrige l'erreur Vercel
-import { createPaymentSession } from '../api/api'; 
+// 🔑 Importation de la fonction d'API pour créer la session de paiement
+import { createBookingSession } from '../api/api'; 
 
-// --- Fonctions utilitaires de calcul ---
+// --- Fonctions utilitaires de calcul (à conserver) ---
 
 // Calcule le nombre de jours entre deux dates (inclusif/exclusif)
 const calculateTotalDays = (start, end) => {
@@ -31,40 +34,33 @@ const calculateTotalPrice = (pricePerMonth, days) => {
 
 
 const BookingForm = ({ housingId, price, landlordId }) => {
-    // Hooks Stripe nécessaires pour la redirection
-    const stripe = useStripe(); 
-    const elements = useElements();
+    const { isLoggedIn } = useAuth();
     const navigate = useNavigate();
-    const { user } = useAuth(); // Pour vérifier l'authentification et le rôle
     
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [totalPrice, setTotalPrice] = useState(0);
 
-    // Mettre à jour le prix total lorsque les dates changent
-    useEffect(() => {
-        const days = calculateTotalDays(startDate, endDate);
-        setTotalPrice(calculateTotalPrice(price, days));
-    }, [startDate, endDate, price]);
+    // États dérivés
+    const totalDays = calculateTotalDays(startDate, endDate);
+    const totalPrice = calculateTotalPrice(price, totalDays);
+    const isFormValid = totalDays > 0 && !!startDate && !!endDate;
+    const isAuthenticated = isLoggedIn;
 
-    // Validation du formulaire et statut utilisateur
-    const isFormValid = startDate && endDate && new Date(endDate) > new Date(startDate) && totalPrice > 0;
-    const isLandlord = user && user.userId === landlordId;
-    const isAuthenticated = !!user;
-
-    const handleSubmit = async (e) => {
+    // --- LOGIQUE DE SOUMISSION CLÉ ---
+    const handleBookingSubmit = async (e) => {
         e.preventDefault();
         setError(null);
-
-        // Vérification de la validité de Stripe/Formulaire/Authentification
-        if (!stripe || !elements || !isFormValid) {
+        
+        if (!isFormValid) {
+            setError("Veuillez choisir des dates valides (la date de fin doit être postérieure à la date de début).");
             return;
         }
 
         if (!isAuthenticated) {
-            setError("Veuillez vous connecter pour effectuer une réservation.");
+            // Redirige l'utilisateur vers la page de connexion s'il n'est pas connecté
+            navigate('/login');
             return;
         }
 
@@ -73,72 +69,71 @@ const BookingForm = ({ housingId, price, landlordId }) => {
         const bookingData = {
             housingId,
             startDate,
-            endDate,
-            totalAmount: totalPrice, // Le backend revalidera le prix
+            endDate
+            // Le backend gère le calcul du montant, le tenantId (via le JWT) et la création de la Booking
         };
 
         try {
-            // 1. Appel à l'API pour créer la session de paiement Stripe
+            // 1. Appeler le backend pour créer la session Stripe Checkout
             const response = await createBookingSession(bookingData);
-            const { sessionId } = response.data;
+            
+            // 2. Le backend renvoie l'URL de la session Stripe
+            const { checkoutUrl } = response.data; 
 
-            // 2. Redirection vers la page de paiement Stripe
-            const result = await stripe.redirectToCheckout({
-                sessionId: sessionId,
-            });
-
-            if (result.error) {
-                setError(result.error.message || 'Échec de la redirection vers le paiement.');
-            }
+            // 3. Rediriger l'utilisateur vers la page de paiement Stripe
+            window.location.href = checkoutUrl;
 
         } catch (err) {
-            console.error("Erreur API de réservation:", err);
-            // Afficher le message d'erreur du backend (ex: dates déjà prises)
-            setError(err.response?.data?.message || 'Erreur lors de la création de la session de paiement. Vérifiez les dates.');
-        } finally {
             setLoading(false);
+            const errorMsg = err.response?.data?.message || 'Erreur inconnue lors de la création de la session de paiement.';
+            setError(errorMsg);
+            console.error("Erreur de session de paiement:", err);
         }
     };
+    // ----------------------------------
 
-    if (isLandlord) {
-        return <p className="text-xl font-bold text-red-500 p-4">Vous êtes le propriétaire de cette annonce et ne pouvez pas la réserver.</p>;
-    }
 
     return (
-        <div className="bg-white p-6 rounded-lg shadow-lg max-w-sm mx-auto my-8">
-            <h3 className="text-2xl font-semibold mb-4 text-gray-800">Réserver ce logement</h3>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                    <label htmlFor="start" className="block text-sm font-medium text-gray-700">Date d'arrivée</label>
-                    <input
-                        type="date"
-                        id="start"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        min={new Date().toISOString().split('T')[0]}
-                        required
-                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                    />
+        <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-indigo-500">
+            <h2 className="text-2xl font-bold mb-4 text-gray-800">Réservation et Paiement</h2>
+            
+            {!isAuthenticated && (
+                <div className="mb-4 p-3 bg-yellow-100 text-yellow-800 border-l-4 border-yellow-500">
+                    <p>⚠️ Vous devez être connecté pour effectuer une réservation.</p>
                 </div>
-                <div>
-                    <label htmlFor="end" className="block text-sm font-medium text-gray-700">Date de départ</label>
-                    <input
-                        type="date"
-                        id="end"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        // La date de fin doit être au moins 1 jour après la date de début
-                        min={startDate ? new Date(new Date(startDate).getTime() + (24 * 60 * 60 * 1000)).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]}
-                        required
-                        disabled={!startDate}
-                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                    />
+            )}
+            
+            <form onSubmit={handleBookingSubmit} className="space-y-4">
+                {/* Champs de Date */}
+                <div className="date-group space-y-3">
+                    <div>
+                        <label htmlFor="startDate" className="block text-sm font-medium text-gray-700">Date de début de location</label>
+                        <input
+                            type="date"
+                            id="startDate"
+                            value={startDate}
+                            onChange={(e) => setStartDate(e.target.value)}
+                            required
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="endDate" className="block text-sm font-medium text-gray-700">Date de fin de location</label>
+                        <input
+                            type="date"
+                            id="endDate"
+                            value={endDate}
+                            onChange={(e) => setEndDate(e.target.value)}
+                            required
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                        />
+                    </div>
                 </div>
                 
+                {/* Affichage du prix total estimé */}
                 {totalPrice > 0 && (
                     <div className="text-lg font-bold text-gray-800 pt-2 border-t border-gray-200">
-                        Total estimé ({calculateTotalDays(startDate, endDate)} jours): <span className="text-indigo-600">{totalPrice} €</span>
+                        Total estimé ({totalDays} jours): <span className="text-indigo-600">{totalPrice} €</span>
                         <p className="text-xs font-normal text-gray-500 mt-1">
                             (Basé sur {price}€/mois. Le prix final est calculé et validé par notre serveur.)
                         </p>
@@ -150,6 +145,7 @@ const BookingForm = ({ housingId, price, landlordId }) => {
                 
                 <button
                     type="submit"
+                    // Désactivé si en chargement, formulaire invalide, ou utilisateur non connecté
                     disabled={loading || !isFormValid || !isAuthenticated}
                     className={`w-full py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
                         loading || !isFormValid || !isAuthenticated
