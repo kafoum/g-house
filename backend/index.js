@@ -1,4 +1,4 @@
-// Fichier : backend/index.js (Version Stable et Complète - Correction Messagerie)
+// Fichier : backend/index.js (Version Stable et Complète - Correction Messagerie V2)
 
 // Charge les variables d'environnement depuis le fichier .env
 require('dotenv').config();
@@ -161,7 +161,7 @@ app.get('/api/housing', async (req, res) => {
             .populate('landlord', 'name email')
             .sort({ createdAt: -1 });
 
-        // Renvoyer l'objet { housings: [...] } pour éviter le crash du front-end
+        // Format qui évite le crash du front-end
         res.status(200).json({ housings }); 
 
     } catch (error) {
@@ -192,7 +192,7 @@ app.get('/api/housing/:id', async (req, res) => {
 // 5. ROUTES MESSAGERIE (Conversations & Messages)
 // ====================================================================
 
-// GET /api/conversations : Récupère la liste des conversations (Votre front-end le fait déjà)
+// GET /api/conversations : Récupère la liste des conversations
 app.get('/api/conversations', authMiddleware, async (req, res) => {
     try {
         const conversations = await Conversation.find({ participants: req.userData.userId })
@@ -245,7 +245,7 @@ app.post('/api/conversations/start', authMiddleware, async (req, res) => {
 });
 
 
-// 🔑 CLÉ : GET /api/conversations/:id/messages : Récupérer l'HISTORIQUE des messages
+// 🔑 FIX CRITIQUE 1 : Ajout de la route pour l'HISTORIQUE des messages
 app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
@@ -260,7 +260,7 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
             .populate('sender', 'name') 
             .sort({ createdAt: 1 });
             
-        res.status(200).json({ messages }); // Renvoyer le tableau de messages
+        res.status(200).json({ messages }); 
     } catch (error) {
         console.error("Erreur sur GET /api/conversations/:id/messages :", error);
         res.status(500).json({ message: 'Erreur serveur lors de la récupération des messages.' });
@@ -302,14 +302,14 @@ wss.on('connection', (ws, req) => {
             if (data.type === 'SEND_MESSAGE') {
                 const { conversationId, content, recipientId } = data.payload;
 
-                // 🔑 CLÉ : ENREGISTREMENT DU MESSAGE EN BASE DE DONNÉES (Fix)
+                // 🔑 FIX CRITIQUE 2 : ENREGISTREMENT DU MESSAGE EN BASE DE DONNÉES
                 const newMessage = new Message({ 
                     conversation: conversationId, 
                     sender: userId, 
                     content: content 
                 });
                 
-                await newMessage.save(); // ✅ Cette ligne manquait probablement!
+                await newMessage.save(); // ✅ Cette ligne garantit la persistance des messages !
 
                 // Mise à jour de la conversation
                 await Conversation.findByIdAndUpdate(
