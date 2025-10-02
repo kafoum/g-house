@@ -14,7 +14,7 @@ const bcrypt = require('bcryptjs');
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./swagger'); // Fichier de configuration Swagger
+const swaggerSpec = require('./swagger'); 
 const cors = require('cors'); 
 // Modules WebSocket
 const http = require('http');
@@ -143,7 +143,7 @@ app.post('/api/login', async (req, res) => {
 // 4. ROUTES LOGEMENTS (HOUSING)
 // ====================================================================
 
-// 🔑 CORRECTION CRUCIALE : Envoi du tableau [housings] directement au lieu de { housings: [...] }
+// 🔑 CORRECTION FINALE : Envoi de l'objet { housings: [...] } pour le front-end
 app.get('/api/housing', async (req, res) => {
     try {
         const { city, price_min, price_max, type } = req.query;
@@ -161,8 +161,8 @@ app.get('/api/housing', async (req, res) => {
             .populate('landlord', 'name email')
             .sort({ createdAt: -1 });
 
-        // MODIFICATION : On envoie l'array 'housings' directement.
-        res.status(200).json(housings); // 💡 Ancienne version: .json({ housings })
+        // CLÉ : Le front-end s'attend à `response.data.housings` (objet enveloppant)
+        res.status(200).json({ housings }); 
 
     } catch (error) {
         console.error("Erreur sur GET /api/housing :", error);
@@ -269,7 +269,7 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
 
 
 // ====================================================================
-// 6. GESTION DES WEBSOCKETS
+// 6. GESTION DES WEBSOCKETS (CLÉ DE LA CORRECTION MESSAGERIE)
 // ====================================================================
 
 const userWsMap = new Map(); 
@@ -329,18 +329,17 @@ wss.on('connection', (ws, req) => {
                     }
                 };
                 
-                // Envoyer au destinataire
+                // Envoyer au destinataire et à l'expéditeur
                 const recipientWs = userWsMap.get(recipientId.toString());
                 if (recipientWs && recipientWs.readyState === WebSocket.OPEN) {
                     recipientWs.send(JSON.stringify(messageToSend));
                 }
-                // Envoyer à l'expéditeur (pour l'affichage immédiat)
                 ws.send(JSON.stringify(messageToSend)); 
 
             }
 
         } catch (error) {
-            // Log de débogage détaillé pour les erreurs Mongoose
+            // Log de débogage détaillé pour les erreurs Mongoose (pour la messagerie)
             console.error('🚨 ERREUR CRITIQUE DE SAUVEGARDE (WebSocket):', error.message);
             if (error.name === 'ValidationError') {
                 console.error('Champs de validation Mongoose manquants:', Object.keys(error.errors));
