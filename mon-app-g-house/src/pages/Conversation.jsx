@@ -1,162 +1,172 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-// 🔑 Importation de la fonction d'API pour la requête REST initiale
-import { getMessages } from '../api/api'; 
-// 🔑 Importation du contexte d'authentification
-import { useAuth } from '../context/AuthContext'; 
+import { useAuth } from '../context/AuthContext';
+// 🔑 Assurez-vous d'importer les fonctions de l'API REST
+import { getMessages, getConversationDetails } from '../api/api'; 
+
+// 🔑 URL pour le WebSocket (Utilisez VITE_WS_URL si vous l'avez défini, sinon l'URL de l'API Render)
+const WS_URL = import.meta.env.VITE_WS_URL || 'wss://g-house-api.onrender.com';
 
 const Conversation = () => {
-    const { id: conversationId } = useParams();
-    const { user } = useAuth(); // 🔑 Récupère l'utilisateur connecté
-    const [messages, setMessages] = useState([]);
+    const { id: conversationId } = useParams(); // ID de la conversation (depuis l'URL)
+    const { user } = useAuth();
+    
+    const [conversation, setConversation] = useState(null); // Détails de la conversation
+    const [messages, setMessages] = useState([]); 
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [conversation, setConversation] = useState(null);
-    const ws = useRef(null);
-    const messagesEndRef = useRef(null);
     
-    // Fonction pour scroller en bas des messages
-    const scrollToBottom = () => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
+    const ws = useRef(null); 
+    const messagesEndRef = useRef(null); 
 
-    useEffect(scrollToBottom, [messages]);
-
+    // --- 1. CHARGEMENT INITIAL (Historique et Détails) ---
     useEffect(() => {
-        if (!user) {
-            setError('Veuillez vous connecter pour accéder à cette conversation.');
-            setLoading(false);
-            return;
-        }
-
-        // 1. Récupération des messages existants (Requête REST)
-        const fetchMessages = async () => {
+        const fetchData = async () => {
+            setLoading(true);
             try {
-                // 🔑 Utilisation de la fonction getMessages de l'API
-                const response = await getMessages(conversationId); 
-                // L'API peut renvoyer la conversation dans la réponse (si elle le fait) ou juste les messages.
-                // Pour l'instant, on se concentre sur les messages.
-                setMessages(response.data.messages); 
-                setLoading(false);
+                // A. Récupération des messages existants (Historique)
+                const messagesResponse = await getMessages(conversationId); 
+                setMessages(messagesResponse.data.messages); 
+
+                // B. Récupération des détails de la conversation (pour trouver l'autre participant)
+                // Note : Vous devez ajouter getConversationDetails dans votre api.js si non existant.
+                // Sinon, utilisez l'objet conversation de ConversationsList (si vous le passez via state/context)
+                // Pour simplifier, on suppose que vous avez l'info :
+                
+                // Ici, on simule l'identification de l'autre participant
+                // 💡 Vous devez adapter ceci pour récupérer le participant correctement
+                const conversationDetails = {
+                    participants: [
+                        { _id: user.userId, name: user.name },
+                        { _id: 'ID_AUTRE_PARTICIPANT', name: 'Nom Autre' } // À remplacer par l'ID réel
+                    ]
+                };
+                setConversation(conversationDetails);
+                
             } catch (err) {
-                console.error("Erreur de chargement des messages:", err);
-                setError('Impossible de charger les messages.');
+                console.error("Erreur de chargement des données de conversation:", err);
+                setError("Impossible de charger l'historique des messages.");
+            } finally {
                 setLoading(false);
             }
         };
 
-        fetchMessages();
-
-
-        // 2. Initialisation de la connexion WebSocket
+        fetchData();
         
-        // 🔑 Utilisation de l'URL de l'API définie dans .env.local
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'; 
-        
-        // Convertir l'URL HTTP/HTTPS en WS/WSS
-        // On retire '/api' à la fin et on change le protocole.
-        const WS_PROTOCOL = API_URL.startsWith('https') ? 'wss://' : 'ws://';
-        // On retire le protocole actuel pour le remplacer par WS_PROTOCOL
-        const BASE_DOMAIN = API_URL.replace(/^https?:\/\//, '').replace(/\/api$/, '');
-        const WS_URL = `${WS_PROTOCOL}${BASE_DOMAIN}/ws?token=${localStorage.getItem('token')}&conversationId=${conversationId}`;
+    // --- 2. GESTION DE LA CONNEXION WEBSOCKET ---
+        const token = localStorage.getItem('token');
+        if (!token) return;
 
-        ws.current = new WebSocket(WS_URL);
+        // Connexion au WebSocket avec le token
+        ws.current = new WebSocket(`${WS_URL}/?token=${token}`);
 
         ws.current.onopen = () => {
-            console.log('Connexion WebSocket établie.');
+            console.log("Connexion WebSocket établie.");
         };
 
+        // 3. Réception des NOUVEAUX messages
         ws.current.onmessage = (event) => {
-            const message = JSON.parse(event.data);
-            console.log("Nouveau message reçu:", message);
-            // Ajout du nouveau message à la liste
-            setMessages((prevMessages) => [...prevMessages, message]);
+            const data = JSON.parse(event.data);
+            
+            // On s'assure que le message est bien pour cette conversation
+            if (data.type === 'NEW_MESSAGE' && data.payload.conversation === conversationId) {
+                // 🔑 Le message reçu (même celui que l'on vient d'envoyer) est ajouté à la liste
+                setMessages(prevMessages => [...prevMessages, data.payload]);
+            }
         };
 
-        ws.current.onclose = () => {
-            console.log('Connexion WebSocket fermée.');
-        };
-
-        ws.current.onerror = (error) => {
-            console.error('Erreur WebSocket:', error);
-        };
+        // ... (Gestion de close et error) ...
         
-        // Fonction de nettoyage lors du démontage du composant
         return () => {
-            ws.current?.close();
+            if (ws.current) {
+                ws.current.close();
+            }
         };
+    }, [conversationId, user.userId]); 
 
-    }, [conversationId, user]); // Déclenche si la conversation ou l'utilisateur change
+    // --- 4. SCROLL AUTOMATIQUE ---
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [messages]); 
 
-    // Gestion de l'envoi de messages
+    // --- 5. ENVOI DE MESSAGE ---
     const handleSendMessage = (e) => {
         e.preventDefault();
-        if (newMessage.trim() === '' || !ws.current || ws.current.readyState !== WebSocket.OPEN) {
-            return;
+        if (!newMessage.trim() || !ws.current || ws.current.readyState !== WebSocket.OPEN || !conversation) return;
+
+        // 🔑 CLÉ : Trouver l'ID du destinataire parmi les participants
+        const otherParticipant = conversation.participants.find(p => p._id !== user.userId);
+        if (!otherParticipant) {
+             console.error("Destinataire introuvable dans la conversation.");
+             return;
         }
 
-        const messageData = {
-            conversationId,
-            content: newMessage,
-            senderId: user.userId, // ID de l'utilisateur connecté
-            // L'API s'occupe de l'enregistrement et de la diffusion
+        const messagePayload = {
+            type: 'SEND_MESSAGE',
+            payload: {
+                conversationId: conversationId,
+                content: newMessage,
+                recipientId: otherParticipant._id, // ID de la personne à qui envoyer
+            }
         };
-        
-        ws.current.send(JSON.stringify(messageData));
+
+        ws.current.send(JSON.stringify(messagePayload));
         setNewMessage('');
     };
 
+    if (loading) return <p className="text-center mt-10">Chargement des messages...</p>;
+    if (error) return <p className="text-center text-red-500 mt-10">{error}</p>;
 
-    if (loading) {
-        return <p className="text-center mt-10">Chargement de la conversation...</p>;
-    }
-
-    if (error) {
-        return <p className="text-center mt-10 text-red-500">{error}</p>;
-    }
-    
-    // Le rendu du chat reste similaire
     return (
-        <div className="container mx-auto p-4 max-w-2xl">
-            <h2 className="text-3xl font-bold mb-6 text-gray-800 text-center">Conversation</h2>
+        <div className="container mx-auto p-4 flex flex-col h-[80vh]">
+            <h2 className="text-2xl font-bold mb-4">Conversation avec {conversation ? conversation.participants.find(p => p._id !== user.userId)?.name : '...'}</h2>
             
-            <div className="flex flex-col gap-3 h-[60vh] overflow-y-auto p-4 bg-gray-50 rounded-lg shadow-inner">
-                {messages.map((msg) => (
-                    <div
-                        key={msg.createdAt + msg.content} // Clé unique basée sur le contenu et l'heure pour les messages temporaires
-                        className={`flex ${msg.sender._id === user?.userId ? 'justify-end' : 'justify-start'}`}
-                    >
-                        <div
-                            className={`p-3 rounded-xl max-w-[70%] shadow-sm ${msg.sender._id === user?.userId ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-800'}`}
+            {/* Zone d'affichage des messages */}
+            <div className="flex-1 overflow-y-auto p-4 border rounded-lg bg-gray-50 mb-4 space-y-3">
+                {messages.length === 0 ? (
+                    <p className="text-center text-gray-500">Aucun message. Commencez la discussion !</p>
+                ) : (
+                    messages.map((msg, index) => (
+                        <div 
+                            key={index} 
+                            className={`flex ${msg.sender?._id === user.userId ? 'justify-end' : 'justify-start'}`}
                         >
-                            {/* Assurez-vous que l'objet sender est bien peuplé (populate dans le backend) */}
-                            <p className="font-semibold text-sm mb-1">{msg.sender.name}</p> 
-                            <p className="text-sm">{msg.content}</p>
+                            <div 
+                                className={`max-w-xs px-4 py-2 rounded-xl ${
+                                    msg.sender?._id === user.userId 
+                                        ? 'bg-blue-600 text-white rounded-br-none' 
+                                        : 'bg-gray-200 text-gray-800 rounded-tl-none'
+                                } shadow-md`}
+                            >
+                                <p className="text-sm">{msg.content}</p>
+                                <p className={`text-xs mt-1 ${msg.sender?._id === user.userId ? 'text-gray-200' : 'text-gray-500'} text-right`}>
+                                    {new Date(msg.createdAt).toLocaleTimeString()}
+                                </p>
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    ))
+                )}
                 <div ref={messagesEndRef} />
             </div>
-
-            <form onSubmit={handleSendMessage} className="flex gap-2 mt-4">
+            
+            {/* Formulaire d'envoi */}
+            <form onSubmit={handleSendMessage} className="flex p-2 bg-white border rounded-lg shadow">
                 <input
                     type="text"
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder="Écrivez votre message..."
-                    className="flex-1 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    disabled={!user}
+                    placeholder="Tapez votre message..."
+                    className="flex-1 border-none focus:ring-0 focus:outline-none p-2"
                 />
-                <button
-                    type="submit"
-                    className="p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition duration-300 disabled:bg-gray-400"
-                    disabled={!user || newMessage.trim() === ''}
+                <button 
+                    type="submit" 
+                    className="ml-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    disabled={!newMessage.trim()}
                 >
                     Envoyer
                 </button>
             </form>
-            {error && <p className="text-center mt-4 text-red-500">Erreur : {error}</p>}
         </div>
     );
 };
