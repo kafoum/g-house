@@ -6,7 +6,7 @@ require('dotenv').config();
 // ====================================================================
 // 1. IMPORTS DES MODULES ET INITIALISATION
 // ====================================================================
-const authMiddleware = require('./middleware/auth'); 
+const authMiddleware = require('./middleware/auth'); // Middleware d'authentification JWT
 const jwt = require('jsonwebtoken');
 const express = require('express');
 const mongoose = require('mongoose');
@@ -14,7 +14,7 @@ const bcrypt = require('bcryptjs');
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./swagger'); 
+const swaggerSpec = require('./swagger'); // Fichier de configuration Swagger
 const cors = require('cors'); 
 
 // Modules WebSocket
@@ -41,11 +41,9 @@ const Housing = require('./models/Housing');
 const Booking = require('./models/Booking');
 const Message = require('./models/Message');
 const Conversation = require('./models/Conversation');
-// Assurez-vous d'importer ProfileDoc et Notification si vous en avez besoin
-// const ProfileDoc = require('./models/ProfileDoc'); 
-// const Notification = require('./models/Notification'); 
+// Importez les autres modèles si vous les utilisez (ex: ProfileDoc, Notification)
 
-// Initialisation de l'application Express
+// Initialisation de l'application Express et du serveur HTTP pour WebSocket
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
@@ -63,10 +61,10 @@ mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('Connexion à MongoDB établie avec succès'))
     .catch(err => console.error('Erreur de connexion à MongoDB:', err)); 
 
-// Middleware CORS (CLÉ DE CORRECTION SI VOUS AVEZ DES PROBLÈMES)
+// Middleware CORS (CLÉ DE CORRECTION DES PROBLÈMES DE CONNEXION)
 const allowedOrigins = [
-    'https://g-house.vercel.app', // Exemple d'URL Vercel
-    'http://localhost:5173',       // Exemple local
+    'https://g-house.vercel.app', 
+    'http://localhost:5173',       
     'http://localhost:3000',
 ];
 
@@ -158,7 +156,7 @@ app.post('/api/login', async (req, res) => {
 // 4. ROUTES LOGEMENTS (HOUSING)
 // ====================================================================
 
-// GET /api/housing : Récupérer toutes les annonces publiques (DOIT FONCTIONNER SANS CONNEXION)
+// GET /api/housing : Récupérer toutes les annonces publiques
 app.get('/api/housing', async (req, res) => {
     try {
         const housingList = await Housing.find()
@@ -172,7 +170,85 @@ app.get('/api/housing', async (req, res) => {
     }
 });
 
-// ... (Ajoutez les autres routes GET /api/housing/:id, POST /api/user/housing, etc.) ...
+// ✅ CORRECTION DU 404 : GET /api/housing/:id - Récupérer les détails d'une annonce spécifique
+app.get('/api/housing/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const housing = await Housing.findById(id).populate('landlord', 'name email');
+
+        if (!housing) {
+            return res.status(404).json({ message: 'Annonce non trouvée.' });
+        }
+
+        res.status(200).json({ housing });
+    } catch (error) {
+        if (error.kind === 'ObjectId') {
+             return res.status(404).json({ message: 'Format d\'ID d\'annonce non valide.' });
+        }
+        console.error("Erreur sur GET /api/housing/:id:", error);
+        res.status(500).json({ message: 'Erreur serveur lors de la récupération des détails de l\'annonce.' });
+    }
+});
+
+// POST /api/user/housing : Créer une nouvelle annonce (Protégée)
+// Utilise 'upload.array('images', 5)' si vous autorisez 5 images
+app.post('/api/user/housing', authMiddleware, upload.array('images', 5), async (req, res) => {
+    try {
+        if (req.userData.userRole !== 'landlord') {
+            return res.status(403).json({ message: 'Accès refusé. Seuls les propriétaires peuvent créer des annonces.' });
+        }
+        
+        const { title, description, price, address, city, zipCode, type, amenities } = req.body;
+        
+        const uploadedImageUrls = [];
+        if (req.files && req.files.length > 0) {
+            for (const file of req.files) {
+                const b64 = Buffer.from(file.buffer).toString("base64");
+                let dataURI = "data:" + file.mimetype + ";base64," + b64;
+                const result = await cloudinary.uploader.upload(dataURI);
+                uploadedImageUrls.push(result.secure_url);
+            }
+        }
+        
+        const newHousing = new Housing({
+            landlord: req.userData.userId,
+            title,
+            description,
+            price: Number(price),
+            location: { address, city, zipCode },
+            type,
+            amenities: amenities ? amenities.split(',').map(a => a.trim()) : [],
+            images: uploadedImageUrls,
+        });
+
+        await newHousing.save();
+        res.status(201).json({ message: 'Annonce créée avec succès.', housing: newHousing });
+
+    } catch (error) {
+        console.error("Erreur sur POST /api/user/housing:", error);
+        res.status(500).json({ message: 'Erreur serveur lors de la création de l\'annonce.' });
+    }
+});
+
+// GET /api/user/housing : Récupérer les annonces du propriétaire connecté (Protégée)
+app.get('/api/user/housing', authMiddleware, async (req, res) => {
+    try {
+        if (req.userData.userRole !== 'landlord') {
+            return res.status(403).json({ message: 'Accès refusé. Seuls les propriétaires peuvent voir leurs annonces.' });
+        }
+        
+        const userHousing = await Housing.find({ landlord: req.userData.userId })
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({ housing: userHousing });
+    } catch (error) {
+        console.error("Erreur sur GET /api/user/housing:", error);
+        res.status(500).json({ message: 'Erreur serveur lors de la récupération de vos annonces.' });
+    }
+});
+
+// ... (Ajoutez les autres routes PUT/DELETE /api/user/housing/:id) ...
 
 
 // ====================================================================
@@ -194,14 +270,13 @@ app.post('/api/bookings/create-checkout-session', authMiddleware, async (req, re
             return res.status(404).json({ message: 'Logement non trouvé.' });
         }
 
-        // Créer l'objet Booking temporaire (statut pending_payment)
         const newBooking = new Booking({
             housing: housingId,
             tenant: tenantId,
             startDate: new Date(startDate),
             endDate: new Date(endDate),
             totalPrice: totalPrice,
-            status: 'pending_payment'
+            status: 'pending_payment' // Statut temporaire avant paiement
         });
         await newBooking.save();
 
@@ -232,6 +307,7 @@ app.post('/api/bookings/create-checkout-session', authMiddleware, async (req, re
     }
 });
 
+// ... (Ajoutez les autres routes de Booking si nécessaire) ...
 
 // ====================================================================
 // 6. ROUTES MESSAGERIE (Conversations & Messages)
@@ -324,9 +400,11 @@ app.get('/api/conversations/:id/messages', authMiddleware, async (req, res) => {
 const userWsMap = new Map(); 
 wss.on('connection', (ws, req) => {
     let userId = null; 
-    const token = req.url.split('token=')[1];
     
-    // ... Logique d'authentification et de gestion des messages WS (inchangée) ...
+    // 1. Extraction et vérification du token depuis l'URL (ou l'en-tête, mais URL est commun pour les clients WS)
+    const tokenMatch = req.url.match(/token=([^&]+)/);
+    const token = tokenMatch ? tokenMatch[1] : null;
+
     if (token) {
         try {
             const decodedToken = jwt.verify(token, process.env.JWT_SECRET);
@@ -343,6 +421,7 @@ wss.on('connection', (ws, req) => {
         return;
     }
 
+    // 2. Traitement des messages entrants
     ws.on('message', async (message) => {
         if (!userId) return;
         try {
@@ -351,20 +430,32 @@ wss.on('connection', (ws, req) => {
             if (data.type === 'SEND_MESSAGE') {
                 const { conversationId, content, recipientId } = data.payload;
 
+                // Enregistrement du message en base de données
                 const newMessage = new Message({ conversation: conversationId, sender: userId, content: content });
                 await newMessage.save();
 
+                // Mise à jour de la conversation (lastMessage et updatedAt)
                 await Conversation.findByIdAndUpdate(conversationId, { lastMessage: newMessage._id, updatedAt: Date.now() });
 
+                // Création de l'objet message à renvoyer aux clients
                 const messageToSend = {
                     type: 'NEW_MESSAGE',
-                    payload: { _id: newMessage._id, content: newMessage.content, sender: { _id: userId }, createdAt: newMessage.createdAt, conversation: conversationId, }
+                    payload: { 
+                        _id: newMessage._id, 
+                        content: newMessage.content, 
+                        sender: { _id: userId }, // Utiliser l'ID pour que le client le mappe
+                        createdAt: newMessage.createdAt, 
+                        conversation: conversationId,
+                    }
                 };
                 
+                // Envoyer au destinataire
                 const recipientWs = userWsMap.get(recipientId.toString());
                 if (recipientWs && recipientWs.readyState === WebSocket.OPEN) {
                     recipientWs.send(JSON.stringify(messageToSend));
                 }
+
+                // Envoyer à l'expéditeur (pour la confirmation)
                 ws.send(JSON.stringify(messageToSend)); 
             }
 
@@ -374,8 +465,12 @@ wss.on('connection', (ws, req) => {
         }
     });
 
+    // 3. Déconnexion
     ws.on('close', () => {
-        if (userId) userWsMap.delete(userId);
+        if (userId) {
+            userWsMap.delete(userId); 
+            console.log(`Utilisateur déconnecté via WebSocket: ${userId}`);
+        }
     });
 });
 
@@ -387,6 +482,7 @@ wss.on('connection', (ws, req) => {
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.get('/', (req, res) => {
+    // Message de vérification simple pour l'état du serveur
     res.send('Bienvenue sur l\'API de G-House ! La connexion à la DB est établie.');
 });
 
