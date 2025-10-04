@@ -35,6 +35,9 @@ const userSchema = new mongoose.Schema({
     }
 });
 
+// Index for faster email lookups
+userSchema.index({ email: 1 });
+
 // Middleware Mongoose pour hacher le mot de passe avant de sauvegarder
 // Le mot-clé `function` est nécessaire pour que `this` référence le document Mongoose
 userSchema.pre('save', async function(next) {

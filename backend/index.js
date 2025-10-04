@@ -16,16 +16,21 @@ const JWT_SECRET = process.env.JWT_SECRET;
 // 1. IMPORTS DES MODULES ET INITIALISATION
 // =====================================================================\\
 const authMiddleware = require('./middleware/auth'); // Middleware d'authentification JWT
+const errorHandler = require('./middleware/errorHandler'); // Global error handler
+const validate = require('./middleware/validate'); // Validation middleware
+const { authLimiter, webhookLimiter } = require('./middleware/rateLimiter'); // Rate limiters
+const { registerSchema, loginSchema } = require('./validators/authValidators');
+const { createHousingSchema, updateHousingSchema } = require('./validators/housingValidators');
 const jwt = require('jsonwebtoken');
 const express = require('express');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs'); 
 const cloudinary = require('cloudinary').v2;
-const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger'); // Fichier de configuration Swagger
 const cors = require('cors'); 
 const { calculatePrice } = require('./utils/priceCalculator'); // Assurez-vous d'avoir ce fichier utilitaire
+const { uploadSingleFile, uploadMultipleFiles } = require('./services/uploadService');
 
 // Modules WebSocket
 const http = require('http');
@@ -41,9 +46,8 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Configuration Multer pour la gestion des fichiers en mémoire (buffer)
-const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
+// Import configured Multer instances
+const { uploadImages, uploadDocuments } = require('./config/multer');
 
 // Importe les modèles Mongoose
 const User = require('./models/User');
@@ -97,7 +101,7 @@ app.use(express.json());
 
 // !!! ATTENTION : Le middleware express.json() ne doit PAS s'appliquer au webhook !!!
 // Le webhook doit lire le corps de la requête sous forme brute (raw)
-app.post('/webhook', express.raw({type: 'application/json'}), async (req, res) => {
+app.post('/webhook', webhookLimiter, express.raw({type: 'application/json'}), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET; 
@@ -140,7 +144,7 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (req, res) =
 // =====================================================================\\
 
 // 5.1 Inscription d'un nouvel utilisateur
-app.post('/api/register', async (req, res) => {
+app.post('/api/register', authLimiter, validate(registerSchema), async (req, res, next) => {
     const { name, email, password, role } = req.body;
     try {
         const user = new User({ name, email, password, role });
@@ -150,12 +154,12 @@ app.post('/api/register', async (req, res) => {
         if (error.code === 11000) {
             return res.status(400).json({ message: 'Cet email est déjà utilisé.' });
         }
-        res.status(500).json({ message: 'Erreur serveur.' });
+        next(error);
     }
 });
 
 // 5.2 Connexion de l'utilisateur
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', authLimiter, validate(loginSchema), async (req, res, next) => {
     const { email, password } = req.body;
     try {
         const user = await User.findOne({ email });
@@ -180,12 +184,12 @@ app.post('/api/login', async (req, res) => {
 
         res.status(200).json({ token, user: userData });
     } catch (error) {
-        res.status(500).json({ message: 'Erreur serveur.' });
+        next(error);
     }
 });
 
 // 5.3 Récupérer le profil utilisateur (Route protégée)
-app.get('/api/user', authMiddleware, async (req, res) => {
+app.get('/api/user', authMiddleware, async (req, res, next) => {
     try {
         const user = await User.findById(req.userId).select('-password');
         if (!user) {
@@ -193,13 +197,13 @@ app.get('/api/user', authMiddleware, async (req, res) => {
         }
         res.status(200).json({ user });
     } catch (error) {
-        res.status(500).json({ message: 'Erreur serveur.' });
+        next(error);
     }
 });
 
 
 // 5.4 Route pour l'upload de documents (Route protégée)
-app.post('/api/user/documents/upload', authMiddleware, upload.single('document'), async (req, res) => {
+app.post('/api/user/documents/upload', authMiddleware, uploadDocuments.single('document'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ message: 'Aucun fichier fourni.' });
@@ -210,13 +214,11 @@ app.post('/api/user/documents/upload', authMiddleware, upload.single('document')
         }
 
         // Upload vers Cloudinary
-        const b64 = Buffer.from(req.file.buffer).toString("base64");
-        let dataURI = "data:" + req.file.mimetype + ";base64," + b64;
-
-        const result = await cloudinary.uploader.upload(dataURI, {
-            folder: `g-house/user_${req.userId}/documents`,
-            resource_type: "auto",
-        });
+        const fileUrl = await uploadSingleFile(
+            req.file.buffer, 
+            req.file.mimetype, 
+            `g-house/user_${req.userId}/documents`
+        );
 
         // Supprimer l'ancien document du même type avant de sauvegarder le nouveau
         await ProfileDoc.deleteOne({ user: req.userId, docType });
@@ -224,14 +226,14 @@ app.post('/api/user/documents/upload', authMiddleware, upload.single('document')
         const profileDoc = new ProfileDoc({
             user: req.userId,
             docType: docType,
-            docUrl: result.secure_url,
+            docUrl: fileUrl,
         });
 
         await profileDoc.save();
 
         res.status(201).json({ 
             message: 'Document téléchargé et enregistré avec succès.', 
-            docUrl: result.secure_url,
+            docUrl: fileUrl,
             docType 
         });
 
@@ -247,43 +249,25 @@ app.post('/api/user/documents/upload', authMiddleware, upload.single('document')
 // =====================================================================\\
 
 // 6.1 Créer un nouveau logement (Propriétaire seulement)
-app.post('/api/housing', authMiddleware, upload.array('images', 5), async (req, res) => {
+app.post('/api/housing', authMiddleware, validate(createHousingSchema), uploadImages.array('images', 5), async (req, res, next) => {
     if (req.role !== 'landlord') {
         return res.status(403).json({ message: 'Accès refusé. Propriétaire requis.' });
     }
 
     try {
         const { title, description, price, address, city, zipCode, type, amenities } = req.body;
-        
-        // Validation basique
-        if (!title || !description || !price || !address || !city || !zipCode || !type) {
-            return res.status(400).json({ message: 'Tous les champs requis ne sont pas remplis.' });
-        }
-
-        const priceNum = parseFloat(price);
-        if (isNaN(priceNum) || priceNum <= 0) {
-            return res.status(400).json({ message: 'Prix invalide.' });
-        }
 
         const amenityList = amenities ? amenities.split(',').map(a => a.trim()).filter(a => a.length > 0) : [];
-        const imageUrls = [];
-
+        
         // Upload des images vers Cloudinary
-        if (req.files && req.files.length > 0) {
-            for (const file of req.files) {
-                const b64 = Buffer.from(file.buffer).toString("base64");
-                let dataURI = "data:" + file.mimetype + ";base64," + b64;
-                const result = await cloudinary.uploader.upload(dataURI, {
-                    folder: `g-house/housing_${req.userId}`,
-                });
-                imageUrls.push(result.secure_url);
-            }
-        }
+        const imageUrls = req.files && req.files.length > 0 
+            ? await uploadMultipleFiles(req.files, `g-house/housing_${req.userId}`)
+            : [];
         
         const newHousing = new Housing({
             title,
             description,
-            price: priceNum,
+            price,
             location: { address, city, zipCode },
             type,
             amenities: amenityList,
@@ -296,12 +280,12 @@ app.post('/api/housing', authMiddleware, upload.array('images', 5), async (req, 
 
     } catch (error) {
         console.error('Erreur lors de la création du logement:', error);
-        res.status(500).json({ message: 'Erreur serveur lors de la création du logement.' });
+        next(error);
     }
 });
 
 // 6.2 Modifier un logement (Propriétaire du logement seulement)
-app.put('/api/housing/:id', authMiddleware, upload.array('images', 5), async (req, res) => {
+app.put('/api/housing/:id', authMiddleware, validate(updateHousingSchema), uploadImages.array('images', 5), async (req, res, next) => {
     if (req.role !== 'landlord') {
         return res.status(403).json({ message: 'Accès refusé. Propriétaire requis.' });
     }
@@ -319,30 +303,23 @@ app.put('/api/housing/:id', authMiddleware, upload.array('images', 5), async (re
             return res.status(403).json({ message: 'Accès refusé. Vous n\'êtes pas le propriétaire de cette annonce.' });
         }
 
-        const { title, description, price, address, city, zipCode, type, amenities } = req.body;
+        const { title, description, price, address, city, zipCode, type, amenities, status } = req.body;
         
         // Mise à jour des champs
-        housing.title = title || housing.title;
-        housing.description = description || housing.description;
-        housing.price = price ? parseFloat(price) : housing.price;
-        housing.location.address = address || housing.location.address;
-        housing.location.city = city || housing.location.city;
-        housing.location.zipCode = zipCode || housing.location.zipCode;
-        housing.type = type || housing.type;
-        housing.amenities = amenities ? amenities.split(',').map(a => a.trim()).filter(a => a.length > 0) : housing.amenities;
+        if (title) housing.title = title;
+        if (description) housing.description = description;
+        if (price) housing.price = price;
+        if (address) housing.location.address = address;
+        if (city) housing.location.city = city;
+        if (zipCode) housing.location.zipCode = zipCode;
+        if (type) housing.type = type;
+        if (status) housing.status = status;
+        if (amenities) housing.amenities = amenities.split(',').map(a => a.trim()).filter(a => a.length > 0);
 
 
         // Gestion des images: Si de NOUVELLES images sont uploadées, on les ajoute/remplace
         if (req.files && req.files.length > 0) {
-            const newImageUrls = [];
-            for (const file of req.files) {
-                const b64 = Buffer.from(file.buffer).toString("base64");
-                let dataURI = "data:" + file.mimetype + ";base64," + b64;
-                const result = await cloudinary.uploader.upload(dataURI, {
-                    folder: `g-house/housing_${req.userId}`,
-                });
-                newImageUrls.push(result.secure_url);
-            }
+            const newImageUrls = await uploadMultipleFiles(req.files, `g-house/housing_${req.userId}`);
             // ⚠️ ATTENTION : Cela écrase toutes les anciennes images. Ajustez la logique si vous voulez les fusionner.
             housing.images = newImageUrls; 
         }
@@ -352,7 +329,7 @@ app.put('/api/housing/:id', authMiddleware, upload.array('images', 5), async (re
 
     } catch (error) {
         console.error('Erreur lors de la modification du logement:', error);
-        res.status(500).json({ message: 'Erreur serveur lors de la modification.' });
+        next(error);
     }
 });
 
@@ -379,10 +356,10 @@ app.delete('/api/housing/:id', authMiddleware, async (req, res) => {
     }
 });
 
-// 6.4 Récupérer la liste de TOUS les logements (avec filtres, public)
-app.get('/api/housing', async (req, res) => {
+// 6.4 Récupérer la liste de TOUS les logements (avec filtres et pagination, public)
+app.get('/api/housing', async (req, res, next) => {
     try {
-        const { city, price_min, price_max, type } = req.query;
+        const { city, price_min, price_max, type, page = 1, limit = 10 } = req.query;
         const filters = { status: 'active' };
 
         if (city) filters['location.city'] = { $regex: city, $options: 'i' };
@@ -394,10 +371,31 @@ app.get('/api/housing', async (req, res) => {
             if (price_max) filters.price.$lte = parseFloat(price_max);
         }
 
-        const housing = await Housing.find(filters).populate('landlord', 'name'); // Populer le nom du propriétaire
-        res.status(200).json({ housing });
+        // Pagination
+        const pageNum = parseInt(page, 10);
+        const limitNum = Math.min(parseInt(limit, 10), 100); // Max 100 items per page
+        const skip = (pageNum - 1) * limitNum;
+
+        const [housing, total] = await Promise.all([
+            Housing.find(filters)
+                .populate('landlord', 'name')
+                .skip(skip)
+                .limit(limitNum)
+                .sort({ createdAt: -1 }),
+            Housing.countDocuments(filters)
+        ]);
+
+        res.status(200).json({ 
+            housing, 
+            pagination: {
+                total,
+                page: pageNum,
+                limit: limitNum,
+                totalPages: Math.ceil(total / limitNum)
+            }
+        });
     } catch (error) {
-        res.status(500).json({ message: 'Erreur serveur lors de la récupération des logements.' });
+        next(error);
     }
 });
 
@@ -710,6 +708,12 @@ wss.on('connection', (ws, req) => {
         if (userId) {
             userWsMap.set(userId, ws);
             console.log(`WebSocket connecté pour l'utilisateur: ${userId}`);
+            
+            // Setup heartbeat
+            ws.isAlive = true;
+            ws.on('pong', () => {
+                ws.isAlive = true;
+            });
         } else {
             ws.close(1008, 'ID utilisateur non valide');
         }
@@ -730,6 +734,12 @@ wss.on('connection', (ws, req) => {
         try {
             const data = JSON.parse(message.toString());
 
+            // Handle ping/pong for heartbeat
+            if (data.type === 'PING') {
+                ws.send(JSON.stringify({ type: 'PONG' }));
+                return;
+            }
+
             if (data.type === 'NEW_MESSAGE' && data.content && data.conversationId && data.recipientId) {
                 const { content, conversationId, recipientId } = data;
 
@@ -742,7 +752,7 @@ wss.on('connection', (ws, req) => {
                 await newMessage.save();
 
                 // 4. Mettre à jour la conversation avec le dernier message
-                const conversation = await Conversation.findByIdAndUpdate(conversationId, 
+                await Conversation.findByIdAndUpdate(conversationId, 
                     { lastMessage: newMessage._id, updatedAt: Date.now() }, 
                     { new: true }
                 );
@@ -783,6 +793,24 @@ wss.on('connection', (ws, req) => {
     });
 });
 
+// WebSocket heartbeat - ping clients every 30 seconds
+const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+        if (ws.isAlive === false) {
+            console.log('Closing inactive WebSocket connection');
+            return ws.terminate();
+        }
+        
+        ws.isAlive = false;
+        ws.ping();
+    });
+}, 30000);
+
+// Clean up on server close
+wss.on('close', () => {
+    clearInterval(heartbeatInterval);
+});
+
 
 // =====================================================================\\
 // 10. ROUTES DIVERSES ET DÉMARRAGE DU SERVEUR
@@ -794,6 +822,9 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.get('/', (req, res) => {
     res.send('Bienvenue sur l\'API de G-House !');
 });
+
+// Global error handler (must be last)
+app.use(errorHandler);
 
 // Démarrage du serveur HTTP (qui écoute aussi le WebSocket)
 server.listen(PORT, () => {
