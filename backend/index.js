@@ -26,7 +26,6 @@ const express = require('express');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs'); 
 const cloudinary = require('cloudinary').v2;
-const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger'); // Fichier de configuration Swagger
 const cors = require('cors'); 
@@ -47,9 +46,8 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Configuration Multer pour la gestion des fichiers en mémoire (buffer)
-const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
+// Import configured Multer instances
+const { uploadImages, uploadDocuments } = require('./config/multer');
 
 // Importe les modèles Mongoose
 const User = require('./models/User');
@@ -205,7 +203,7 @@ app.get('/api/user', authMiddleware, async (req, res, next) => {
 
 
 // 5.4 Route pour l'upload de documents (Route protégée)
-app.post('/api/user/documents/upload', authMiddleware, upload.single('document'), async (req, res) => {
+app.post('/api/user/documents/upload', authMiddleware, uploadDocuments.single('document'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ message: 'Aucun fichier fourni.' });
@@ -251,7 +249,7 @@ app.post('/api/user/documents/upload', authMiddleware, upload.single('document')
 // =====================================================================\\
 
 // 6.1 Créer un nouveau logement (Propriétaire seulement)
-app.post('/api/housing', authMiddleware, validate(createHousingSchema), upload.array('images', 5), async (req, res, next) => {
+app.post('/api/housing', authMiddleware, validate(createHousingSchema), uploadImages.array('images', 5), async (req, res, next) => {
     if (req.role !== 'landlord') {
         return res.status(403).json({ message: 'Accès refusé. Propriétaire requis.' });
     }
@@ -287,7 +285,7 @@ app.post('/api/housing', authMiddleware, validate(createHousingSchema), upload.a
 });
 
 // 6.2 Modifier un logement (Propriétaire du logement seulement)
-app.put('/api/housing/:id', authMiddleware, validate(updateHousingSchema), upload.array('images', 5), async (req, res, next) => {
+app.put('/api/housing/:id', authMiddleware, validate(updateHousingSchema), uploadImages.array('images', 5), async (req, res, next) => {
     if (req.role !== 'landlord') {
         return res.status(403).json({ message: 'Accès refusé. Propriétaire requis.' });
     }
