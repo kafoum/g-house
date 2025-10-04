@@ -1,21 +1,28 @@
 const jwt = require('jsonwebtoken');
 
+/**
+ * Middleware d'authentification JWT.
+ * Normalise l'ajout des infos utilisateur sur l'objet req pour correspondre
+ * aux usages du code existant (req.userId, req.role) tout en conservant
+ * req.userData pour compatibilité.
+ */
 module.exports = (req, res, next) => {
-  // 1. Récupérer le token de l'en-tête de la requête
   try {
-    const token = req.headers.authorization.split(' ')[1]; // "Bearer TOKEN"
-
-    // 2. Vérifier et décoder le token
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'Token manquant.' });
+    }
+    const token = authHeader.split(' ')[1];
     const decodedToken = jwt.verify(token, process.env.JWT_SECRET);
 
-    // 3. Ajouter les informations de l'utilisateur à l'objet de la requête
-    // 🚨 Le changement crucial : on utilise decodedToken.userId au lieu de decodedToken.id
-    req.userData = { userId: decodedToken.userId, userRole: decodedToken.role }; 
+    // Champs normalisés utilisés partout ailleurs dans le code
+    req.userId = decodedToken.userId;
+    req.role = decodedToken.role;
+    // Compatibilité avec ancien code éventuel
+    req.userData = { userId: decodedToken.userId, userRole: decodedToken.role };
 
-    // 4. Continuer vers la prochaine fonction de la route
-    next();
+    return next();
   } catch (error) {
-    // En cas d'erreur (pas de token ou token invalide)
-    return res.status(401).json({ message: 'Authentification échouée.' });
+    return res.status(401).json({ message: 'Authentification échouée.', error: 'INVALID_TOKEN' });
   }
 };
