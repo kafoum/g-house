@@ -24,8 +24,18 @@ const calculatePrice = (pricePerMonth, startDate, endDate) => {
     return Math.round(total * 100);
 };
 
+// Nouvelle logique de réservation : montant = (loyer + caution) + commission
+// commission = taux * (loyer + caution). Retourne un objet détaillé.
+const calculateReservationBreakdown = ({ monthlyRent, deposit = 0, commissionRate = 0.4 }) => {
+    const base = Number(monthlyRent || 0) + Number(deposit || 0);
+    const commission = +(base * commissionRate).toFixed(2);
+    const total = +(base + commission).toFixed(2);
+    return { baseRent: Number(monthlyRent), deposit: Number(deposit), commissionRate, commission, total };
+};
+
 module.exports = {
     calculateTotalDays,
     calculateTotalPrice,
     calculatePrice,
+    calculateReservationBreakdown,
 };

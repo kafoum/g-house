@@ -21,6 +21,12 @@ const bookingSchema = new mongoose.Schema({
         type: Date,
         required: true
     },
+    baseRent: { type: Number },
+    deposit: { type: Number },
+    commission: { type: Number },
+    commissionRate: { type: Number },
+    totalAmount: { type: Number },
+    mismatch: { type: Boolean, default: false },
     // Le statut de la réservation (en attente, confirmée, annulée, etc.)
     status: {
         type: String,
@@ -32,6 +38,10 @@ const bookingSchema = new mongoose.Schema({
         default: Date.now
     }
 });
+
+bookingSchema.index({ tenant: 1, createdAt: -1 });
+bookingSchema.index({ housing: 1, createdAt: -1 });
+bookingSchema.index({ status: 1 });
 
 const Booking = mongoose.model('Booking', bookingSchema);
 module.exports = Booking;
