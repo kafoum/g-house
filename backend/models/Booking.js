@@ -33,5 +33,11 @@ const bookingSchema = new mongoose.Schema({
     }
 });
 
+// Index pour améliorer les performances des requêtes
+bookingSchema.index({ tenant: 1 });
+bookingSchema.index({ housing: 1 });
+bookingSchema.index({ status: 1 });
+bookingSchema.index({ startDate: 1, endDate: 1 });
+
 const Booking = mongoose.model('Booking', bookingSchema);
 module.exports = Booking;
