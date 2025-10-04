@@ -6,28 +6,53 @@
   "scripts": {
     "dev": "nodemon index.js",
     "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+  "seed": "node seed.js",
+  "seed:wipe": "node seed.js --wipe",
+  "test": "NODE_ENV=test jest --runInBand",
+  "test:watch": "NODE_ENV=test jest --watch",
+  "test:unit": "NODE_ENV=test jest __tests__/unit --runInBand",
+  "test:int": "NODE_ENV=test jest __tests__/integration --runInBand"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=18 <21"
+  },
   "dependencies": {
     "bcryptjs": "^3.0.2",
     "cloudinary": "^2.7.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
+    "helmet": "^7.1.0",
+    "compression": "^1.7.4",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.18.0",
     "multer": "^2.0.2",
     "nodemailer": "^7.0.6",
+  "@sentry/node": "^8.31.0",
+  "@sentry/profiling-node": "^8.31.0",
     "socket.io": "^4.8.1",
     "stripe": "^18.5.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
-    "ws": "^8.18.3"
+    "express-rate-limit": "^7.4.0",
+  "prom-client": "^15.1.2",
+    "ws": "^8.18.3",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
+    "@eslint/js": "^9.10.0",
+    "eslint": "^9.10.0",
+  "globals": "^15.9.0",
+  "jest": "^29.7.0",
+  "supertest": "^7.1.1",
+    "pino": "^9.3.2",
+    "pino-http": "^10.3.0",
+  "nodemon": "^3.1.10",
+  "mongodb-memory-server": "^10.1.4"
   }
 }

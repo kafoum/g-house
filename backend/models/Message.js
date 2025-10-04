@@ -28,5 +28,8 @@ const messageSchema = new mongoose.Schema({
     timestamps: true // Ajoute createdAt (date d'envoi) et updatedAt
 });
 
+messageSchema.index({ conversation: 1, createdAt: 1 });
+messageSchema.index({ sender: 1, createdAt: -1 });
+
 const Message = mongoose.model('Message', messageSchema);
 module.exports = Message;

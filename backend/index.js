@@ -1,44 +1,51 @@
-// Fichier : backend/index.js (Version unifiée avec toutes les routes)
+// Fichier : backend/index.js
+// NOTE: Structure historique conservée temporairement. Une version refactorisée
+// modulaire existe maintenant dans app.js avec routes & controllers séparés.
+// Progressivement, migrer la logique restante vers les contrôleurs.
 
 // =====================================================================\\
 // 0. CONFIGURATION DES VARIABLES D'ENVIRONNEMENT
 // =====================================================================\\
 require('dotenv').config();
+const { app: refactoredApp, server: refactoredServer, logger } = require('./app');
+// On continue d'exposer le serveur existant pour compatibilité (WebSocket etc.)
+const config = require('./config/env');
 
 // 🔑 CLÉ : Définition des URL critiques (MONGODB_URI est pris de .env)
-const PORT = process.env.PORT || 5000;
-// Utilise VERCEL_FRONTEND_URL (pour le déploiement) ou l'URL fournie comme valeur de secours
-const FRONTEND_URL = process.env.VERCEL_FRONTEND_URL || 'https://g-house.vercel.app'; 
-const JWT_SECRET = process.env.JWT_SECRET;
+const PORT = config.port;
+const FRONTEND_URL = config.frontendUrl;
+const JWT_SECRET = config.jwtSecret;
 // Assurez-vous que STRIPE_SECRET_KEY et STRIPE_WEBHOOK_SECRET sont bien dans votre fichier .env
 
 // =====================================================================\\
 // 1. IMPORTS DES MODULES ET INITIALISATION
 // =====================================================================\\
-const authMiddleware = require('./middleware/auth'); // Middleware d'authentification JWT
+// Anciennes dépendances conservées pour WebSocket & routes legacy encore dans ce fichier
+const authMiddleware = require('./middleware/auth');
+const { errorHandler, NotFoundError, BadRequestError } = require('./middleware/errorHandler');
 const jwt = require('jsonwebtoken');
 const express = require('express');
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs'); 
+const bcrypt = require('bcryptjs');
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./swagger'); // Fichier de configuration Swagger
-const cors = require('cors'); 
-const { calculatePrice } = require('./utils/priceCalculator'); // Assurez-vous d'avoir ce fichier utilitaire
+const swaggerSpec = require('./swagger');
+const { calculatePrice } = require('./utils/priceCalculator');
+const rateLimit = require('express-rate-limit');
 
 // Modules WebSocket
 const http = require('http');
 const WebSocket = require('ws');
 
 // INITIALISATION DE STRIPE
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
+const stripe = require('stripe')(config.stripe.secretKey); 
 
 // Configuration Cloudinary
 cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET
+    cloud_name: config.cloudinary.cloudName,
+    api_key: config.cloudinary.apiKey,
+    api_secret: config.cloudinary.apiSecret
 });
 
 // Configuration Multer pour la gestion des fichiers en mémoire (buffer)
@@ -55,22 +62,16 @@ const Notification = require('./models/Notification');
 const ProfileDoc = require('./models/ProfileDoc'); 
 
 // Initialisation d'Express
-const app = express();
-// Crée un serveur HTTP standard pour Express ET le WebSocket
-const server = http.createServer(app);
+// Réutilise app et server refactorisés
+const app = refactoredApp;
+const server = refactoredServer;
+
+// Logger déjà ajouté dans app.js
 
 
 // =====================================================================\\
 // 2. CONNEXION À LA BASE DE DONNÉES
-// =====================================================================\\
-
-// 🔑 CLÉ : Utilisation de MONGODB_URI
-mongoose.connect(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-})
-.then(() => console.log('Connexion à MongoDB réussie !'))
-.catch(error => console.error('Connexion à MongoDB échouée !', error));
+// (Supprimée ici - centralisée désormais dans app.js pour éviter double connexion)
 
 
 // =====================================================================\\
@@ -90,164 +91,77 @@ app.use(cors(corsOptions));
 // ⚠️ ATTENTION : Express.json doit être APRÈS la définition du webhook Stripe si vous l'utilisez
 app.use(express.json()); 
 
-
 // =====================================================================\\
-// 4. WEBHOOK STRIPE (Doit être avant express.json() si non raw)
+// 3.b RATE LIMITING (auth & paiement & register)
 // =====================================================================\\
-
-// !!! ATTENTION : Le middleware express.json() ne doit PAS s'appliquer au webhook !!!
-// Le webhook doit lire le corps de la requête sous forme brute (raw)
-app.post('/webhook', express.raw({type: 'application/json'}), async (req, res) => {
-    const sig = req.headers['stripe-signature'];
-    let event;
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET; 
-
-    if (!webhookSecret) {
-        return res.status(500).send({ message: 'Clé Webhook Stripe manquante.' });
-    }
-
-    try {
-        event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
-    } catch (err) {
-        console.log(`⚠️ Erreur de vérification du Webhook : ${err.message}`);
-        return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    // Traiter l'événement
-    if (event.type === 'checkout.session.completed') {
-        const session = event.data.object;
-        const bookingId = session.metadata.bookingId;
-
-        console.log(`✅ Session de paiement complétée pour la réservation ID: ${bookingId}`);
-
-        try {
-            // Mettre à jour le statut de la réservation dans la base de données
-            await Booking.findByIdAndUpdate(bookingId, 
-                { status: 'confirmed' }, 
-                { new: true }
-            );
-
-        } catch (error) {
-            console.error('Erreur lors de la mise à jour de la réservation après paiement:', error);
-        }
-    }
-
-    res.status(200).json({ received: true });
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 20, // 20 requêtes
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: 'Trop de tentatives. Réessayez plus tard.' }
 });
+const paymentLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+// Limiteur global IP
+const globalLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+app.use(globalLimiter);
+
+// Limiteur par utilisateur pour opérations d'écriture (utilise une map en mémoire)
+const userWriteHits = new Map();
+const USER_WRITE_WINDOW_MS = 60 * 1000;
+const USER_WRITE_MAX = 60; // 60 écritures/minute
+function userWriteLimiter(req, res, next) {
+    const key = req.userId || req.ip;
+    const now = Date.now();
+    const entry = userWriteHits.get(key) || { count: 0, start: now };
+    if (now - entry.start > USER_WRITE_WINDOW_MS) {
+        entry.count = 0; entry.start = now;
+    }
+    entry.count += 1;
+    userWriteHits.set(key, entry);
+    if (entry.count > USER_WRITE_MAX) {
+        return res.status(429).json({ message: 'Trop d\'opérations d\'écriture. Réduisez le rythme.' });
+    }
+    next();
+}
+
+
 
 // =====================================================================\\
 // 5. ROUTES D'AUTHENTIFICATION ET UTILISATEUR (/api)
 // =====================================================================\\
 
 // 5.1 Inscription d'un nouvel utilisateur
-app.post('/api/register', async (req, res) => {
+app.post('/api/register', authLimiter, async (req, res, next) => {
     const { name, email, password, role } = req.body;
     try {
+        if (!name || !email || !password) {
+            throw new BadRequestError('Champs requis manquants');
+        }
         const user = new User({ name, email, password, role });
         await user.save();
-        res.status(201).json({ message: 'Inscription réussie !' });
+        res.status(201).json({ message: 'Utilisateur créé avec succès.', user: { _id: user._id, name: user.name, email: user.email, role: user.role } });
     } catch (error) {
         if (error.code === 11000) {
-            return res.status(400).json({ message: 'Cet email est déjà utilisé.' });
+            res.status(409).json({ message: 'Email déjà utilisé.' });
+        } else {
+            next(error);
         }
-        res.status(500).json({ message: 'Erreur serveur.' });
     }
 });
 
-// 5.2 Connexion de l'utilisateur
-app.post('/api/login', async (req, res) => {
-    const { email, password } = req.body;
-    try {
-        const user = await User.findOne({ email });
-        if (!user) {
-            return res.status(404).json({ message: 'Utilisateur non trouvé.' });
-        }
-
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(400).json({ message: 'Mot de passe incorrect.' });
-        }
-
-        const token = jwt.sign({ userId: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-
-        // Retourne l'utilisateur (sans le mot de passe) et le token
-        const userData = {
-            userId: user._id, // Renommer pour le frontend si nécessaire
-            name: user.name,
-            email: user.email,
-            role: user.role,
-        };
-
-        res.status(200).json({ token, user: userData });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur serveur.' });
-    }
-});
-
-// 5.3 Récupérer le profil utilisateur (Route protégée)
-app.get('/api/user', authMiddleware, async (req, res) => {
-    try {
-        const user = await User.findById(req.userId).select('-password');
-        if (!user) {
-            return res.status(404).json({ message: 'Utilisateur non trouvé.' });
-        }
-        res.status(200).json({ user });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur serveur.' });
-    }
-});
-
-
-// 5.4 Route pour l'upload de documents (Route protégée)
-app.post('/api/user/documents/upload', authMiddleware, upload.single('document'), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ message: 'Aucun fichier fourni.' });
-        }
-        const { docType } = req.body;
-        if (!docType) {
-            return res.status(400).json({ message: 'Type de document manquant.' });
-        }
-
-        // Upload vers Cloudinary
-        const b64 = Buffer.from(req.file.buffer).toString("base64");
-        let dataURI = "data:" + req.file.mimetype + ";base64," + b64;
-
-        const result = await cloudinary.uploader.upload(dataURI, {
-            folder: `g-house/user_${req.userId}/documents`,
-            resource_type: "auto",
-        });
-
-        // Supprimer l'ancien document du même type avant de sauvegarder le nouveau
-        await ProfileDoc.deleteOne({ user: req.userId, docType });
-
-        const profileDoc = new ProfileDoc({
-            user: req.userId,
-            docType: docType,
-            docUrl: result.secure_url,
-        });
-
-        await profileDoc.save();
-
-        res.status(201).json({ 
-            message: 'Document téléchargé et enregistré avec succès.', 
-            docUrl: result.secure_url,
-            docType 
-        });
-
-    } catch (error) {
-        console.error('Erreur lors de l\'upload de document:', error);
-        res.status(500).json({ message: 'Erreur lors du traitement de l\'upload.', error: error.message });
-    }
-});
-
-
-// =====================================================================\\
-// 6. ROUTES LOGEMENTS (/api/housing)
-// =====================================================================\\
-
-// 6.1 Créer un nouveau logement (Propriétaire seulement)
-app.post('/api/housing', authMiddleware, upload.array('images', 5), async (req, res) => {
+// 6.1 Créer un logement (Propriétaire seulement)
+app.post('/api/housing', authMiddleware, userWriteLimiter, upload.array('images', 5), async (req, res) => {
     if (req.role !== 'landlord') {
         return res.status(403).json({ message: 'Accès refusé. Propriétaire requis.' });
     }
@@ -301,7 +215,7 @@ app.post('/api/housing', authMiddleware, upload.array('images', 5), async (req, 
 });
 
 // 6.2 Modifier un logement (Propriétaire du logement seulement)
-app.put('/api/housing/:id', authMiddleware, upload.array('images', 5), async (req, res) => {
+app.put('/api/housing/:id', authMiddleware, userWriteLimiter, upload.array('images', 5), async (req, res) => {
     if (req.role !== 'landlord') {
         return res.status(403).json({ message: 'Accès refusé. Propriétaire requis.' });
     }
@@ -357,7 +271,7 @@ app.put('/api/housing/:id', authMiddleware, upload.array('images', 5), async (re
 });
 
 // 6.3 Supprimer un logement (Propriétaire du logement seulement)
-app.delete('/api/housing/:id', authMiddleware, async (req, res) => {
+app.delete('/api/housing/:id', authMiddleware, userWriteLimiter, async (req, res) => {
     if (req.role !== 'landlord') {
         return res.status(403).json({ message: 'Accès refusé. Propriétaire requis.' });
     }
@@ -380,24 +294,42 @@ app.delete('/api/housing/:id', authMiddleware, async (req, res) => {
 });
 
 // 6.4 Récupérer la liste de TOUS les logements (avec filtres, public)
-app.get('/api/housing', async (req, res) => {
+app.get('/api/housing', async (req, res, next) => {
     try {
-        const { city, price_min, price_max, type } = req.query;
+        const { city, price_min, price_max, type, page = 1, limit = 10 } = req.query;
         const filters = { status: 'active' };
-
         if (city) filters['location.city'] = { $regex: city, $options: 'i' };
         if (type) filters.type = type;
-
         if (price_min || price_max) {
             filters.price = {};
             if (price_min) filters.price.$gte = parseFloat(price_min);
             if (price_max) filters.price.$lte = parseFloat(price_max);
         }
-
-        const housing = await Housing.find(filters).populate('landlord', 'name'); // Populer le nom du propriétaire
-        res.status(200).json({ housing });
+        const pageNum = Math.max(parseInt(page, 10), 1);
+        const limitNum = Math.min(Math.max(parseInt(limit, 10), 1), 50);
+        const skip = (pageNum - 1) * limitNum;
+        const [items, total] = await Promise.all([
+            Housing.find(filters)
+                .populate('landlord', 'name')
+                .skip(skip)
+                .limit(limitNum)
+                .sort({ createdAt: -1 }),
+            Housing.countDocuments(filters)
+        ]);
+        const totalPages = Math.ceil(total / limitNum) || 1;
+        res.status(200).json({
+            data: items,
+            meta: {
+                page: pageNum,
+                limit: limitNum,
+                total,
+                totalPages,
+                hasNext: pageNum < totalPages,
+                hasPrev: pageNum > 1
+            }
+        });
     } catch (error) {
-        res.status(500).json({ message: 'Erreur serveur lors de la récupération des logements.' });
+        next(error);
     }
 });
 
@@ -433,7 +365,7 @@ app.get('/api/user/housing', authMiddleware, async (req, res) => {
 // =====================================================================\\
 
 // 7.1 Créer une session de paiement Stripe
-app.post('/api/bookings/create-checkout-session', authMiddleware, async (req, res) => {
+app.post('/api/bookings/create-checkout-session', paymentLimiter, authMiddleware, userWriteLimiter, async (req, res, next) => {
     if (req.role !== 'tenant') {
         return res.status(403).json({ message: 'Seul un locataire peut effectuer une réservation.' });
     }
@@ -496,7 +428,7 @@ app.post('/api/bookings/create-checkout-session', authMiddleware, async (req, re
 
     } catch (error) {
         console.error('Erreur lors de la création de la session Stripe:', error);
-        res.status(500).json({ message: 'Erreur serveur lors du paiement.' });
+        next(error);
     }
 });
 
@@ -795,7 +727,20 @@ app.get('/', (req, res) => {
     res.send('Bienvenue sur l\'API de G-House !');
 });
 
+app.get('/health', async (req, res) => {
+    const dbState = mongoose.connection.readyState; // 0=disconnected 1=connected 2=connecting 3=disconnecting
+    const dbStatuses = ['disconnected','connected','connecting','disconnecting'];
+    res.json({
+        status: 'ok',
+        version: '1.0.0',
+        uptime: process.uptime(),
+        db: dbStatuses[dbState] || 'unknown',
+        timestamp: new Date().toISOString()
+    });
+});
+
 // Démarrage du serveur HTTP (qui écoute aussi le WebSocket)
+// Démarrage serveur (si pas déjà lancé ailleurs)
 server.listen(PORT, () => {
-    console.log(`Le serveur de G-House est en cours d'exécution sur le port ${PORT}`);
+    logger.info({ port: PORT }, 'Serveur G-House démarré (index legacy)');
 });
