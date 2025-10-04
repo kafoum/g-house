@@ -2,7 +2,7 @@
  * Global error handling middleware
  * Catches all errors and returns a consistent response format
  */
-module.exports = (err, req, res, next) => {
+module.exports = (err, req, res, _next) => {
   console.error('[ERROR]', {
     message: err.message,
     stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,

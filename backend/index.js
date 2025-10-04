@@ -31,6 +31,7 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger'); // Fichier de configuration Swagger
 const cors = require('cors'); 
 const { calculatePrice } = require('./utils/priceCalculator'); // Assurez-vous d'avoir ce fichier utilitaire
+const { uploadSingleFile, uploadMultipleFiles } = require('./services/uploadService');
 
 // Modules WebSocket
 const http = require('http');
@@ -215,13 +216,11 @@ app.post('/api/user/documents/upload', authMiddleware, upload.single('document')
         }
 
         // Upload vers Cloudinary
-        const b64 = Buffer.from(req.file.buffer).toString("base64");
-        let dataURI = "data:" + req.file.mimetype + ";base64," + b64;
-
-        const result = await cloudinary.uploader.upload(dataURI, {
-            folder: `g-house/user_${req.userId}/documents`,
-            resource_type: "auto",
-        });
+        const fileUrl = await uploadSingleFile(
+            req.file.buffer, 
+            req.file.mimetype, 
+            `g-house/user_${req.userId}/documents`
+        );
 
         // Supprimer l'ancien document du même type avant de sauvegarder le nouveau
         await ProfileDoc.deleteOne({ user: req.userId, docType });
@@ -229,14 +228,14 @@ app.post('/api/user/documents/upload', authMiddleware, upload.single('document')
         const profileDoc = new ProfileDoc({
             user: req.userId,
             docType: docType,
-            docUrl: result.secure_url,
+            docUrl: fileUrl,
         });
 
         await profileDoc.save();
 
         res.status(201).json({ 
             message: 'Document téléchargé et enregistré avec succès.', 
-            docUrl: result.secure_url,
+            docUrl: fileUrl,
             docType 
         });
 
@@ -261,19 +260,11 @@ app.post('/api/housing', authMiddleware, validate(createHousingSchema), upload.a
         const { title, description, price, address, city, zipCode, type, amenities } = req.body;
 
         const amenityList = amenities ? amenities.split(',').map(a => a.trim()).filter(a => a.length > 0) : [];
-        const imageUrls = [];
-
+        
         // Upload des images vers Cloudinary
-        if (req.files && req.files.length > 0) {
-            for (const file of req.files) {
-                const b64 = Buffer.from(file.buffer).toString("base64");
-                let dataURI = "data:" + file.mimetype + ";base64," + b64;
-                const result = await cloudinary.uploader.upload(dataURI, {
-                    folder: `g-house/housing_${req.userId}`,
-                });
-                imageUrls.push(result.secure_url);
-            }
-        }
+        const imageUrls = req.files && req.files.length > 0 
+            ? await uploadMultipleFiles(req.files, `g-house/housing_${req.userId}`)
+            : [];
         
         const newHousing = new Housing({
             title,
@@ -296,7 +287,7 @@ app.post('/api/housing', authMiddleware, validate(createHousingSchema), upload.a
 });
 
 // 6.2 Modifier un logement (Propriétaire du logement seulement)
-app.put('/api/housing/:id', authMiddleware, upload.array('images', 5), async (req, res) => {
+app.put('/api/housing/:id', authMiddleware, validate(updateHousingSchema), upload.array('images', 5), async (req, res, next) => {
     if (req.role !== 'landlord') {
         return res.status(403).json({ message: 'Accès refusé. Propriétaire requis.' });
     }
@@ -314,30 +305,23 @@ app.put('/api/housing/:id', authMiddleware, upload.array('images', 5), async (re
             return res.status(403).json({ message: 'Accès refusé. Vous n\'êtes pas le propriétaire de cette annonce.' });
         }
 
-        const { title, description, price, address, city, zipCode, type, amenities } = req.body;
+        const { title, description, price, address, city, zipCode, type, amenities, status } = req.body;
         
         // Mise à jour des champs
-        housing.title = title || housing.title;
-        housing.description = description || housing.description;
-        housing.price = price ? parseFloat(price) : housing.price;
-        housing.location.address = address || housing.location.address;
-        housing.location.city = city || housing.location.city;
-        housing.location.zipCode = zipCode || housing.location.zipCode;
-        housing.type = type || housing.type;
-        housing.amenities = amenities ? amenities.split(',').map(a => a.trim()).filter(a => a.length > 0) : housing.amenities;
+        if (title) housing.title = title;
+        if (description) housing.description = description;
+        if (price) housing.price = price;
+        if (address) housing.location.address = address;
+        if (city) housing.location.city = city;
+        if (zipCode) housing.location.zipCode = zipCode;
+        if (type) housing.type = type;
+        if (status) housing.status = status;
+        if (amenities) housing.amenities = amenities.split(',').map(a => a.trim()).filter(a => a.length > 0);
 
 
         // Gestion des images: Si de NOUVELLES images sont uploadées, on les ajoute/remplace
         if (req.files && req.files.length > 0) {
-            const newImageUrls = [];
-            for (const file of req.files) {
-                const b64 = Buffer.from(file.buffer).toString("base64");
-                let dataURI = "data:" + file.mimetype + ";base64," + b64;
-                const result = await cloudinary.uploader.upload(dataURI, {
-                    folder: `g-house/housing_${req.userId}`,
-                });
-                newImageUrls.push(result.secure_url);
-            }
+            const newImageUrls = await uploadMultipleFiles(req.files, `g-house/housing_${req.userId}`);
             // ⚠️ ATTENTION : Cela écrase toutes les anciennes images. Ajustez la logique si vous voulez les fusionner.
             housing.images = newImageUrls; 
         }
@@ -347,7 +331,7 @@ app.put('/api/housing/:id', authMiddleware, upload.array('images', 5), async (re
 
     } catch (error) {
         console.error('Erreur lors de la modification du logement:', error);
-        res.status(500).json({ message: 'Erreur serveur lors de la modification.' });
+        next(error);
     }
 });
 
@@ -726,6 +710,12 @@ wss.on('connection', (ws, req) => {
         if (userId) {
             userWsMap.set(userId, ws);
             console.log(`WebSocket connecté pour l'utilisateur: ${userId}`);
+            
+            // Setup heartbeat
+            ws.isAlive = true;
+            ws.on('pong', () => {
+                ws.isAlive = true;
+            });
         } else {
             ws.close(1008, 'ID utilisateur non valide');
         }
@@ -746,6 +736,12 @@ wss.on('connection', (ws, req) => {
         try {
             const data = JSON.parse(message.toString());
 
+            // Handle ping/pong for heartbeat
+            if (data.type === 'PING') {
+                ws.send(JSON.stringify({ type: 'PONG' }));
+                return;
+            }
+
             if (data.type === 'NEW_MESSAGE' && data.content && data.conversationId && data.recipientId) {
                 const { content, conversationId, recipientId } = data;
 
@@ -758,7 +754,7 @@ wss.on('connection', (ws, req) => {
                 await newMessage.save();
 
                 // 4. Mettre à jour la conversation avec le dernier message
-                const conversation = await Conversation.findByIdAndUpdate(conversationId, 
+                await Conversation.findByIdAndUpdate(conversationId, 
                     { lastMessage: newMessage._id, updatedAt: Date.now() }, 
                     { new: true }
                 );
@@ -797,6 +793,24 @@ wss.on('connection', (ws, req) => {
             console.log(`WebSocket déconnecté pour l'utilisateur: ${userId}`);
         }
     });
+});
+
+// WebSocket heartbeat - ping clients every 30 seconds
+const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+        if (ws.isAlive === false) {
+            console.log('Closing inactive WebSocket connection');
+            return ws.terminate();
+        }
+        
+        ws.isAlive = false;
+        ws.ping();
+    });
+}, 30000);
+
+// Clean up on server close
+wss.on('close', () => {
+    clearInterval(heartbeatInterval);
 });
 
 
