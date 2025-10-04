@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "start": "npm --prefix backend start",
     "test": "npm --prefix backend test",
     "test:int": "npm --prefix backend run test:int",
     "test:unit": "npm --prefix backend run test:unit"

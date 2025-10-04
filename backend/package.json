@@ -7,7 +7,7 @@
     "dev": "nodemon index.js",
     "start": "node index.js",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
+  "lint:fix": "eslint . --fix",
   "seed": "node seed.js",
   "seed:wipe": "node seed.js --wipe",
   "test": "NODE_ENV=test jest --runInBand",
@@ -33,14 +33,14 @@
     "mongoose": "^8.18.0",
     "multer": "^2.0.2",
     "nodemailer": "^7.0.6",
-  "@sentry/node": "^8.31.0",
-  "@sentry/profiling-node": "^8.31.0",
+    "@sentry/node": "^8.31.0",
+    "@sentry/profiling-node": "^8.31.0",
     "socket.io": "^4.8.1",
     "stripe": "^18.5.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
     "express-rate-limit": "^7.4.0",
-  "prom-client": "^15.1.2",
+    "prom-client": "^15.1.2",
     "ws": "^8.18.3",
     "zod": "^3.23.8"
   },
@@ -52,7 +52,7 @@
   "supertest": "^7.1.1",
     "pino": "^9.3.2",
     "pino-http": "^10.3.0",
-  "nodemon": "^3.1.10",
-  "mongodb-memory-server": "^10.1.4"
+    "nodemon": "^3.1.10",
+    "mongodb-memory-server": "^10.1.4"
   }
 }
