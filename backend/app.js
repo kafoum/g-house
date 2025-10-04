@@ -86,7 +86,7 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // DB connect (could be extracted)
-mongoose.connect(config.mongoUri, { useNewUrlParser: true, useUnifiedTopology: true })
+mongoose.connect(config.mongoUri)
   .then(()=> logger.info('Mongo connecté'))
   .catch(err => logger.error({ err }, 'Erreur connexion Mongo'));
 

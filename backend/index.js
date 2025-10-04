@@ -26,6 +26,7 @@ const { errorHandler, NotFoundError, BadRequestError } = require('./middleware/e
 const jwt = require('jsonwebtoken');
 const express = require('express');
 const mongoose = require('mongoose');
+const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
