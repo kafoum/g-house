@@ -1,5 +1,13 @@
 const request = require('supertest');
 const mongoose = require('mongoose');
+// IMPORTANT: définir MONGODB_URI avant d'importer la fabrique d'app
+const { MongoMemoryServer } = require('mongodb-memory-server');
+let mongo;
+beforeAll(async () => {
+  mongo = await MongoMemoryServer.create();
+  process.env.MONGODB_URI = mongo.getUri();
+  process.env.JWT_SECRET = 'testsecret';
+});
 const createTestApp = require('../../testApp');
 const User = require('../../models/User');
 const Housing = require('../../models/Housing');
@@ -26,7 +34,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await mongoose.connection.close();
+  if (mongoose.connection.readyState === 1) {
+    await mongoose.connection.close();
+  }
+  if (mongo) await mongo.stop();
 });
 
 describe('Housing filters aplEligible & furnished', () => {
