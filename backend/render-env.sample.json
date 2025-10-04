@@ -1,0 +1,20 @@
+{
+  "NODE_ENV": "production",
+  "MONGODB_URI": "mongodb+srv://<user>:<PASSWORD>@<cluster-host>/<db>?retryWrites=true&w=majority",
+  "JWT_SECRET": "(générer via node -e crypto.randomBytes)",
+  "STRIPE_SECRET_KEY": "(mettre dans Render uniquement)",
+  "STRIPE_WEBHOOK_SECRET": "(mettre dans Render uniquement)",
+  "CLOUDINARY_CLOUD_NAME": "<cloud_name>",
+  "CLOUDINARY_API_KEY": "<api_key>",
+  "CLOUDINARY_API_SECRET": "<api_secret>",
+  "VERCEL_FRONTEND_URL": "https://g-house.example.com",
+  "RESERVATION_COMMISSION_RATE": "0.4",
+  "LOG_LEVEL": "info",
+  "ENABLE_REQUEST_TRACE": "true",
+  "EMAIL_USER": "no-reply@g-house.example",
+  "EMAIL_PASS": "(app password)",
+  "SENTRY_DSN": "(optionnel)",
+  "SENTRY_TRACES_SAMPLE_RATE": "0.1",
+  "SENTRY_PROFILES_SAMPLE_RATE": "0.02",
+  "RELEASE": "g-house-backend@1.0.0"
+}

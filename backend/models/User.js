@@ -28,6 +28,10 @@ const userSchema = new mongoose.Schema({
         enum: ['tenant', 'landlord'],
         default: 'tenant'
     },
+    verification: {
+        status: { type: String, enum: ['unverified','pending','verified'], default: 'unverified' },
+        updatedAt: { type: Date }
+    },
     // Une date de création
     createdAt: {
         type: Date,
