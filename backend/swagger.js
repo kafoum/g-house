@@ -1,5 +1,4 @@
 const swaggerJsdoc = require('swagger-jsdoc');
-const path = require('path');
 
 // Importe directement le fichier JSON
 const swaggerDocument = require('./api-docs.json');

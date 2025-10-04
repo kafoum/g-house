@@ -18,7 +18,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const authMiddleware = require('./middleware/auth'); // Middleware d'authentification JWT
 const errorHandler = require('./middleware/errorHandler'); // Middleware de gestion d'erreurs
 const { validate } = require('./middleware/validation'); // Middleware de validation
-const { authLimiter, webhookLimiter, apiLimiter } = require('./middleware/rateLimiter'); // Rate limiters
+const { authLimiter, webhookLimiter } = require('./middleware/rateLimiter'); // Rate limiters
 const { 
   registerSchema, 
   loginSchema, 
@@ -61,7 +61,7 @@ const Housing = require('./models/Housing');
 const Booking = require('./models/Booking');
 const Conversation = require('./models/Conversation');
 const Message = require('./models/Message');
-const Notification = require('./models/Notification');
+// const Notification = require('./models/Notification'); // Uncomment when needed
 const ProfileDoc = require('./models/ProfileDoc'); 
 
 // Initialisation d'Express
@@ -221,7 +221,7 @@ app.post('/api/user/documents/upload', authMiddleware, upload.single('document')
 
         // Upload vers Cloudinary
         const b64 = Buffer.from(req.file.buffer).toString("base64");
-        let dataURI = "data:" + req.file.mimetype + ";base64," + b64;
+        const dataURI = "data:" + req.file.mimetype + ";base64," + b64;
 
         const result = await cloudinary.uploader.upload(dataURI, {
             folder: `g-house/user_${req.userId}/documents`,
@@ -272,7 +272,7 @@ app.post('/api/housing', authMiddleware, upload.array('images', 5), validate(cre
         if (req.files && req.files.length > 0) {
             for (const file of req.files) {
                 const b64 = Buffer.from(file.buffer).toString("base64");
-                let dataURI = "data:" + file.mimetype + ";base64," + b64;
+                const dataURI = "data:" + file.mimetype + ";base64," + b64;
                 const result = await cloudinary.uploader.upload(dataURI, {
                     folder: `g-house/housing_${req.userId}`,
                 });
@@ -337,7 +337,7 @@ app.put('/api/housing/:id', authMiddleware, upload.array('images', 5), async (re
             const newImageUrls = [];
             for (const file of req.files) {
                 const b64 = Buffer.from(file.buffer).toString("base64");
-                let dataURI = "data:" + file.mimetype + ";base64," + b64;
+                const dataURI = "data:" + file.mimetype + ";base64," + b64;
                 const result = await cloudinary.uploader.upload(dataURI, {
                     folder: `g-house/housing_${req.userId}`,
                 });
@@ -374,7 +374,7 @@ app.delete('/api/housing/:id', authMiddleware, async (req, res) => {
         await Conversation.deleteMany({ housing: housingId }); // Supprimer les conversations liées
 
         res.status(200).json({ message: 'Logement supprimé avec succès.' });
-    } catch (error) {
+    } catch {
         res.status(500).json({ message: 'Erreur serveur lors de la suppression.' });
     }
 });
@@ -425,7 +425,7 @@ app.get('/api/housing/:id', async (req, res) => {
             return res.status(404).json({ message: 'Logement non trouvé.' });
         }
         res.status(200).json({ housing });
-    } catch (error) {
+    } catch {
         res.status(500).json({ message: 'Erreur serveur lors de la récupération des détails.' });
     }
 });
@@ -438,7 +438,7 @@ app.get('/api/user/housing', authMiddleware, async (req, res) => {
     try {
         const housing = await Housing.find({ landlord: req.userId });
         res.status(200).json({ housing });
-    } catch (error) {
+    } catch {
         res.status(500).json({ message: 'Erreur serveur.' });
     }
 });
@@ -512,7 +512,7 @@ app.post('/api/bookings/create-checkout-session', authMiddleware, validate(creat
 
     } catch (error) {
         console.error('Erreur lors de la création de la session Stripe:', error);
-        res.status(500).json({ message: 'Erreur serveur lors du paiement.' });
+        next(error);
     }
 });
 
@@ -681,7 +681,7 @@ app.get('/api/conversations/:id', authMiddleware, async (req, res) => {
         }
         res.status(200).json({ conversation });
         
-    } catch (error) {
+    } catch {
         res.status(500).json({ message: 'Erreur serveur.' });
     }
 });
@@ -758,7 +758,7 @@ wss.on('connection', (ws, req) => {
                 await newMessage.save();
 
                 // 4. Mettre à jour la conversation avec le dernier message
-                const conversation = await Conversation.findByIdAndUpdate(conversationId, 
+                await Conversation.findByIdAndUpdate(conversationId, 
                     { lastMessage: newMessage._id, updatedAt: Date.now() }, 
                     { new: true }
                 );

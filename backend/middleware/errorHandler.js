@@ -2,7 +2,7 @@
  * Middleware global de gestion des erreurs
  * Centralise la gestion des erreurs pour des réponses cohérentes
  */
-module.exports = (err, req, res, next) => {
+module.exports = (err, req, res, _next) => {
   // Log l'erreur pour le débogage
   console.error('[ERROR]', {
     message: err.message,

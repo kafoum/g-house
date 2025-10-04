@@ -22,7 +22,7 @@ module.exports = (req, res, next) => {
     req.userData = { userId: decodedToken.userId, userRole: decodedToken.role };
 
     return next();
-  } catch (error) {
+  } catch {
     return res.status(401).json({ message: 'Authentification échouée.', error: 'INVALID_TOKEN' });
   }
 };

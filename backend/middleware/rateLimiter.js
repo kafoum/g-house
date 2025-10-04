@@ -43,7 +43,7 @@ const apiLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => {
+  skip: (_req) => {
     // Ignorer le rate limiting pour certaines routes si nécessaire
     return false;
   }
