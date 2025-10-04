@@ -16,6 +16,11 @@ const JWT_SECRET = process.env.JWT_SECRET;
 // 1. IMPORTS DES MODULES ET INITIALISATION
 // =====================================================================\\
 const authMiddleware = require('./middleware/auth'); // Middleware d'authentification JWT
+const errorHandler = require('./middleware/errorHandler'); // Global error handler
+const validate = require('./middleware/validate'); // Validation middleware
+const { authLimiter, webhookLimiter } = require('./middleware/rateLimiter'); // Rate limiters
+const { registerSchema, loginSchema } = require('./validators/authValidators');
+const { createHousingSchema, updateHousingSchema } = require('./validators/housingValidators');
 const jwt = require('jsonwebtoken');
 const express = require('express');
 const mongoose = require('mongoose');
@@ -97,7 +102,7 @@ app.use(express.json());
 
 // !!! ATTENTION : Le middleware express.json() ne doit PAS s'appliquer au webhook !!!
 // Le webhook doit lire le corps de la requête sous forme brute (raw)
-app.post('/webhook', express.raw({type: 'application/json'}), async (req, res) => {
+app.post('/webhook', webhookLimiter, express.raw({type: 'application/json'}), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET; 
@@ -140,7 +145,7 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (req, res) =
 // =====================================================================\\
 
 // 5.1 Inscription d'un nouvel utilisateur
-app.post('/api/register', async (req, res) => {
+app.post('/api/register', authLimiter, validate(registerSchema), async (req, res, next) => {
     const { name, email, password, role } = req.body;
     try {
         const user = new User({ name, email, password, role });
@@ -150,12 +155,12 @@ app.post('/api/register', async (req, res) => {
         if (error.code === 11000) {
             return res.status(400).json({ message: 'Cet email est déjà utilisé.' });
         }
-        res.status(500).json({ message: 'Erreur serveur.' });
+        next(error);
     }
 });
 
 // 5.2 Connexion de l'utilisateur
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', authLimiter, validate(loginSchema), async (req, res, next) => {
     const { email, password } = req.body;
     try {
         const user = await User.findOne({ email });
@@ -180,12 +185,12 @@ app.post('/api/login', async (req, res) => {
 
         res.status(200).json({ token, user: userData });
     } catch (error) {
-        res.status(500).json({ message: 'Erreur serveur.' });
+        next(error);
     }
 });
 
 // 5.3 Récupérer le profil utilisateur (Route protégée)
-app.get('/api/user', authMiddleware, async (req, res) => {
+app.get('/api/user', authMiddleware, async (req, res, next) => {
     try {
         const user = await User.findById(req.userId).select('-password');
         if (!user) {
@@ -193,7 +198,7 @@ app.get('/api/user', authMiddleware, async (req, res) => {
         }
         res.status(200).json({ user });
     } catch (error) {
-        res.status(500).json({ message: 'Erreur serveur.' });
+        next(error);
     }
 });
 
@@ -247,23 +252,13 @@ app.post('/api/user/documents/upload', authMiddleware, upload.single('document')
 // =====================================================================\\
 
 // 6.1 Créer un nouveau logement (Propriétaire seulement)
-app.post('/api/housing', authMiddleware, upload.array('images', 5), async (req, res) => {
+app.post('/api/housing', authMiddleware, validate(createHousingSchema), upload.array('images', 5), async (req, res, next) => {
     if (req.role !== 'landlord') {
         return res.status(403).json({ message: 'Accès refusé. Propriétaire requis.' });
     }
 
     try {
         const { title, description, price, address, city, zipCode, type, amenities } = req.body;
-        
-        // Validation basique
-        if (!title || !description || !price || !address || !city || !zipCode || !type) {
-            return res.status(400).json({ message: 'Tous les champs requis ne sont pas remplis.' });
-        }
-
-        const priceNum = parseFloat(price);
-        if (isNaN(priceNum) || priceNum <= 0) {
-            return res.status(400).json({ message: 'Prix invalide.' });
-        }
 
         const amenityList = amenities ? amenities.split(',').map(a => a.trim()).filter(a => a.length > 0) : [];
         const imageUrls = [];
@@ -283,7 +278,7 @@ app.post('/api/housing', authMiddleware, upload.array('images', 5), async (req, 
         const newHousing = new Housing({
             title,
             description,
-            price: priceNum,
+            price,
             location: { address, city, zipCode },
             type,
             amenities: amenityList,
@@ -296,7 +291,7 @@ app.post('/api/housing', authMiddleware, upload.array('images', 5), async (req, 
 
     } catch (error) {
         console.error('Erreur lors de la création du logement:', error);
-        res.status(500).json({ message: 'Erreur serveur lors de la création du logement.' });
+        next(error);
     }
 });
 
@@ -379,10 +374,10 @@ app.delete('/api/housing/:id', authMiddleware, async (req, res) => {
     }
 });
 
-// 6.4 Récupérer la liste de TOUS les logements (avec filtres, public)
-app.get('/api/housing', async (req, res) => {
+// 6.4 Récupérer la liste de TOUS les logements (avec filtres et pagination, public)
+app.get('/api/housing', async (req, res, next) => {
     try {
-        const { city, price_min, price_max, type } = req.query;
+        const { city, price_min, price_max, type, page = 1, limit = 10 } = req.query;
         const filters = { status: 'active' };
 
         if (city) filters['location.city'] = { $regex: city, $options: 'i' };
@@ -394,10 +389,31 @@ app.get('/api/housing', async (req, res) => {
             if (price_max) filters.price.$lte = parseFloat(price_max);
         }
 
-        const housing = await Housing.find(filters).populate('landlord', 'name'); // Populer le nom du propriétaire
-        res.status(200).json({ housing });
+        // Pagination
+        const pageNum = parseInt(page, 10);
+        const limitNum = Math.min(parseInt(limit, 10), 100); // Max 100 items per page
+        const skip = (pageNum - 1) * limitNum;
+
+        const [housing, total] = await Promise.all([
+            Housing.find(filters)
+                .populate('landlord', 'name')
+                .skip(skip)
+                .limit(limitNum)
+                .sort({ createdAt: -1 }),
+            Housing.countDocuments(filters)
+        ]);
+
+        res.status(200).json({ 
+            housing, 
+            pagination: {
+                total,
+                page: pageNum,
+                limit: limitNum,
+                totalPages: Math.ceil(total / limitNum)
+            }
+        });
     } catch (error) {
-        res.status(500).json({ message: 'Erreur serveur lors de la récupération des logements.' });
+        next(error);
     }
 });
 
@@ -794,6 +810,9 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.get('/', (req, res) => {
     res.send('Bienvenue sur l\'API de G-House !');
 });
+
+// Global error handler (must be last)
+app.use(errorHandler);
 
 // Démarrage du serveur HTTP (qui écoute aussi le WebSocket)
 server.listen(PORT, () => {

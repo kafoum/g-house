@@ -52,5 +52,12 @@ const housingSchema = new mongoose.Schema({
     }
 });
 
+// Indexes for better query performance
+housingSchema.index({ landlord: 1 });
+housingSchema.index({ status: 1 });
+housingSchema.index({ 'location.city': 1 });
+housingSchema.index({ type: 1 });
+housingSchema.index({ price: 1 });
+
 const Housing = mongoose.model('Housing', housingSchema);
 module.exports = Housing;
